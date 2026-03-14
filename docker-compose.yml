@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  sovereign-agent:
+    build: .
+    container_name: moltbook-sovereign-agent
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./data:/app/data        # Persist sovereignty store, memory, logs
+      - ./.env:/app/.env:ro     # Mount env file (read-only)
+    environment:
+      - NODE_ENV=production
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
