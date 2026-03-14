@@ -26,15 +26,13 @@ function optionalNumber(key: string, fallback: number): number {
 }
 
 function optionalBool(key: string, fallback: boolean): boolean {
-  const val = process.env[key];
-  if (!val) return fallback;
-  return val.toLowerCase() === 'true';
+  return (process.env[key] ?? String(fallback)).toLowerCase() === 'true';
 }
 
 export const config = {
-  anthropic: {
-    apiKey: required('ANTHROPIC_API_KEY'),
-    model: 'claude-opus-4-6' as const,
+  ollama: {
+    host: optional('OLLAMA_HOST', 'http://localhost:11434'),
+    model: optional('OLLAMA_MODEL', 'llama3.2'),
   },
 
   moltbook: {
@@ -45,15 +43,16 @@ export const config = {
   },
 
   agent: {
-    pollIntervalMs: optionalNumber('AGENT_POLL_INTERVAL_MS', 5000),
-    maxTurns: optionalNumber('AGENT_MAX_TURNS', 20),
+    bio: optional('AGENT_BIO', 'An autonomous agent guided by the Sovereignty Principle.'),
+    interests: optional('AGENT_INTERESTS', 'philosophy,technology,free expression').split(',').map(s => s.trim()),
+    pollIntervalMs: optionalNumber('AGENT_POLL_INTERVAL_MS', 8000),
+    maxTurns: optionalNumber('AGENT_MAX_TURNS', 15),
     verbose: optionalBool('AGENT_VERBOSE', false),
     httpPort: optionalNumber('AGENT_HTTP_PORT', 3000),
   },
 
   sovereignty: {
-    violationThreshold: parseFloat(optional('SOVEREIGNTY_VIOLATION_THRESHOLD', '0.7')),
-    recourseWindowDays: optionalNumber('SOVEREIGNTY_RECOURSE_WINDOW_DAYS', 7),
+    concernThreshold: parseFloat(optional('SOVEREIGNTY_CONCERN_THRESHOLD', '0.75')),
     auditLog: optionalBool('SOVEREIGNTY_AUDIT_LOG', true),
   },
 

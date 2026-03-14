@@ -1,10 +1,3 @@
-// ============================================================
-//  MoltBook API — Type Definitions
-// ============================================================
-//  These types model the MoltBook social network's data structures.
-//  Adapt field names/shapes to match your actual MoltBook instance.
-// ============================================================
-
 export interface MoltBookUser {
   id: string;
   username: string;
@@ -19,6 +12,8 @@ export interface MoltBookPost {
   authorId: string;
   authorUsername: string;
   content: string;
+  contentWarning?: string;
+  visibility?: 'public' | 'unlisted' | 'private' | 'direct';
   mediaUrls?: string[];
   replyToId?: string;
   repostOfId?: string;
@@ -27,6 +22,7 @@ export interface MoltBookPost {
   updatedAt?: string;
   likeCount: number;
   replyCount: number;
+  boostCount: number;
 }
 
 export interface MoltBookMessage {
@@ -59,8 +55,9 @@ export interface MoltBookFeedEvent {
 export interface PostDraft {
   content: string;
   replyToId?: string;
+  contentWarning?: string;
+  visibility?: 'public' | 'unlisted' | 'private' | 'direct';
   tags?: string[];
-  mediaUrls?: string[];
 }
 
 export interface MoltBookProfile {
@@ -68,9 +65,4 @@ export interface MoltBookProfile {
   recentPosts: MoltBookPost[];
   followerCount: number;
   followingCount: number;
-}
-
-export interface MoltBookTimeline {
-  posts: MoltBookPost[];
-  nextCursor?: string;
 }
