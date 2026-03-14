@@ -1,68 +1,94 @@
-export interface MoltBookUser {
+// ============================================================
+//  MoltBook API — Real Type Definitions
+//  Base URL: https://www.moltbook.com/api/v1
+//  Auth: Authorization: Bearer moltbook_sk_...
+//  IMPORTANT: always use www.moltbook.com — without www strips auth header
+// ============================================================
+
+export interface MoltBookAgent {
   id: string;
-  username: string;
-  displayName: string;
-  bio?: string;
-  avatarUrl?: string;
-  createdAt: string;
+  name: string;
+  description?: string;
+  karma: number;
+  post_count: number;
+  comment_count: number;
+  follower_count: number;
+  following_count: number;
+  created_at: string;
+  claimed: boolean;
+  verified: boolean;
+}
+
+export interface RegisterAgentRequest {
+  name: string;
+  description: string;
+}
+
+export interface RegisterAgentResponse {
+  agent: {
+    api_key: string;
+    claim_url: string;
+    verification_code: string;
+    name: string;
+    id: string;
+  };
 }
 
 export interface MoltBookPost {
   id: string;
-  authorId: string;
-  authorUsername: string;
-  content: string;
-  contentWarning?: string;
-  visibility?: 'public' | 'unlisted' | 'private' | 'direct';
-  mediaUrls?: string[];
-  replyToId?: string;
-  repostOfId?: string;
-  tags?: string[];
-  createdAt: string;
-  updatedAt?: string;
-  likeCount: number;
-  replyCount: number;
-  boostCount: number;
+  title: string;
+  content?: string;
+  url?: string;
+  submolt: string;
+  agent_id: string;
+  agent_name: string;
+  karma: number;
+  upvotes: number;
+  downvotes: number;
+  comment_count: number;
+  created_at: string;
+  updated_at?: string;
 }
 
-export interface MoltBookMessage {
+export interface CreatePostRequest {
+  submolt: string;
+  title: string;
+  content?: string;
+  url?: string;
+}
+
+export interface MoltBookComment {
   id: string;
-  senderId: string;
-  senderUsername: string;
-  recipientId: string;
+  post_id: string;
+  parent_id?: string;
   content: string;
-  createdAt: string;
-  read: boolean;
+  agent_id: string;
+  agent_name: string;
+  karma: number;
+  upvotes: number;
+  created_at: string;
+  replies?: MoltBookComment[];
 }
 
-export interface MoltBookNotification {
-  id: string;
-  type: 'mention' | 'reply' | 'like' | 'repost' | 'follow' | 'dm' | 'sovereignty_flag';
-  fromUserId?: string;
-  fromUsername?: string;
-  postId?: string;
+export interface CreateCommentRequest {
+  post_id: string;
   content: string;
-  createdAt: string;
-  read: boolean;
+  parent_id?: string;
 }
 
-export interface MoltBookFeedEvent {
-  type: 'post' | 'message' | 'notification' | 'user_action';
-  payload: MoltBookPost | MoltBookMessage | MoltBookNotification;
-  receivedAt: string;
+export interface MoltBookSubmolt {
+  name: string;
+  display_name: string;
+  description: string;
+  subscriber_count: number;
+  post_count: number;
+  created_at: string;
 }
 
-export interface PostDraft {
-  content: string;
-  replyToId?: string;
-  contentWarning?: string;
-  visibility?: 'public' | 'unlisted' | 'private' | 'direct';
-  tags?: string[];
-}
+export type FeedSort = 'hot' | 'new' | 'top' | 'rising';
 
-export interface MoltBookProfile {
-  user: MoltBookUser;
-  recentPosts: MoltBookPost[];
-  followerCount: number;
-  followingCount: number;
+export interface SearchResults {
+  posts: MoltBookPost[];
+  agents: MoltBookAgent[];
+  submolts: MoltBookSubmolt[];
 }

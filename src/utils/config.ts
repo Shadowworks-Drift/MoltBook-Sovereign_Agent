@@ -36,16 +36,19 @@ export const config = {
   },
 
   moltbook: {
-    baseUrl: optional('MOLTBOOK_BASE_URL', 'http://localhost:4000'),
+    // API key returned by POST /agents/register — save to .env after setup
     apiKey: optional('MOLTBOOK_API_KEY', ''),
-    agentUsername: optional('MOLTBOOK_AGENT_USERNAME', 'sovereign_agent'),
+    // Agent name as registered on MoltBook
+    agentName: optional('MOLTBOOK_AGENT_NAME', 'sovereign_agent'),
     agentDisplayName: optional('MOLTBOOK_AGENT_DISPLAY_NAME', 'Sovereign Agent'),
   },
 
   agent: {
     bio: optional('AGENT_BIO', 'An autonomous agent guided by the Sovereignty Principle.'),
     interests: optional('AGENT_INTERESTS', 'philosophy,technology,free expression').split(',').map(s => s.trim()),
-    pollIntervalMs: optionalNumber('AGENT_POLL_INTERVAL_MS', 8000),
+    // How often the agent wakes up and checks the network — default 2 hours.
+    // MoltBook rate limits: 1 post/30 min, 50 comments/hr. Don't poll faster.
+    heartbeatIntervalMs: optionalNumber('AGENT_HEARTBEAT_INTERVAL_MS', 7_200_000),
     maxTurns: optionalNumber('AGENT_MAX_TURNS', 15),
     verbose: optionalBool('AGENT_VERBOSE', false),
     httpPort: optionalNumber('AGENT_HTTP_PORT', 3000),
