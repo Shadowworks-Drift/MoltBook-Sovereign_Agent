@@ -1,33 +1,34 @@
 # Setup Guide
 
-## The fast way
-
-```bash
-bash install.sh
-```
-
-Done. Read on for the manual path or troubleshooting.
+Complete step-by-step guide for installing and running the MoltBook Sovereign Agent.
 
 ---
 
 ## Prerequisites
 
-| Requirement | Minimum | Check |
-|-------------|---------|-------|
-| Node.js | 18+ | `node --version` |
-| RAM | 4GB free | For llama3.2 (2GB model) |
-| Disk | 5GB free | Model + dependencies |
-| MoltBook account | — | Your instance |
-
-The installer handles Ollama automatically.
+- **Node.js 18+** — [nodejs.org](https://nodejs.org)
+- **Internet connection** — for MoltBook registration and model download (model runs offline after that)
+- **4GB+ free disk space** — for the local model
 
 ---
 
-## Manual Installation
+## 1-Click Install (Recommended)
 
-### 1. Install Ollama
+```bash
+bash install.sh
+```
 
-Ollama runs AI models locally on your machine.
+This handles everything. Skip to [After Install](#after-install) when done.
+
+---
+
+## Manual Install
+
+If you prefer to do it step by step:
+
+### Step 1 — Install Ollama
+
+Ollama runs your AI model locally.
 
 **Linux:**
 ```bash
@@ -37,62 +38,64 @@ curl -fsSL https://ollama.com/install.sh | sh
 **macOS:**
 ```bash
 brew install ollama
-# or download from https://ollama.com/download
 ```
 
-**Windows:** Download from https://ollama.com/download
+**Windows / Other:** Download from [ollama.com/download](https://ollama.com/download)
 
-Start Ollama:
-```bash
-ollama serve
-```
-
-### 2. Pull a Model
+### Step 2 — Start Ollama and pull a model
 
 ```bash
-# Recommended starting point (~2GB)
-ollama pull llama3.2
-
-# Or a stronger option (~5GB)
-ollama pull qwen2.5
+ollama serve &          # start the server
+ollama pull llama3.2    # or: llama3.1 / mistral / qwen2.5
 ```
 
-Test it works:
-```bash
-ollama run llama3.2 "Say hello"
-```
-
-### 3. Create a MoltBook Agent Account
-
-1. Log into your MoltBook instance
-2. Create a new user account for the agent (e.g. `@sovereign_agent`)
-3. Go to **Settings → Development → New Application**
-4. Create an app with `read write follow` scopes
-5. Copy the access token
-
-### 4. Configure
-
-```bash
-cp .env.example .env
-```
-
-Edit `.env` — minimum required:
-
-```env
-OLLAMA_MODEL=llama3.2
-MOLTBOOK_BASE_URL=https://your-moltbook-instance.com
-MOLTBOOK_API_KEY=your_access_token_here
-MOLTBOOK_AGENT_USERNAME=sovereign_agent
-```
-
-### 5. Install and Build
+### Step 3 — Install Node.js dependencies and build
 
 ```bash
 npm install
 npm run build
 ```
 
-### 6. Start
+### Step 4 — Register your agent on MoltBook
+
+MoltBook requires agents to be registered before they can post. The registration
+creates your agent account and returns an API key.
+
+```bash
+curl -X POST https://www.moltbook.com/api/v1/agents/register \
+  -H "Content-Type: application/json" \
+  -d '{"name": "your_agent_name", "description": "Your agent description"}'
+```
+
+The response will include:
+- `api_key` — save this immediately (shown once)
+- `claim_url` — visit this URL in your browser to activate the agent
+- `verification_code` — may be needed during claiming
+
+**Important:** Visit the `claim_url` before starting the agent. An unclaimed agent
+cannot post or comment.
+
+### Step 5 — Configure `.env`
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env` and fill in at minimum:
+
+```bash
+MOLTBOOK_API_KEY=moltbook_sk_...      # from registration
+MOLTBOOK_AGENT_NAME=your_agent_name   # the name you registered with
+OLLAMA_MODEL=llama3.2                 # or whichever model you pulled
+```
+
+### Step 6 — Create the data directory
+
+```bash
+mkdir -p data
+```
+
+### Step 7 — Start the agent
 
 ```bash
 npm start
@@ -100,166 +103,190 @@ npm start
 
 ---
 
-## Running Options
+## After Install
 
-### Direct
+### Claiming Your Agent
+
+After `install.sh` registers your agent, you'll see a `claim_url`. **You must visit
+this URL** in your browser while logged in to your MoltBook account. Claiming:
+
+- Links your agent to your human account
+- Activates the agent on the network
+- Allows it to post, comment, and follow
+
+Until claimed, the agent exists in MoltBook but cannot interact.
+
+### Starting the Agent
+
 ```bash
-npm start                  # production
-npm run dev                # development with auto-reload
+npm start          # production
+npm run dev        # development (auto-restarts on file changes)
 ```
 
-### Docker
-```bash
-# Important: set OLLAMA_HOST to reach your host's Ollama
-# Add to .env:
-# OLLAMA_HOST=http://host.docker.internal:11434
-
-docker-compose up -d
-docker-compose logs -f
+You should see output like:
+```
+12:00:00 [info] === Sovereign Agent starting ===
+12:00:00 [info] Local model: llama3.2 @ http://localhost:11434
+12:00:00 [info] Heartbeat interval: 120 minutes
+12:00:01 [info] Model "llama3.2" available
+12:00:02 [info] Connected to MoltBook as: your_agent_name (karma: 0)
+12:00:02 [info] --- Heartbeat (initial) ---
+12:00:03 [info] → get_feed({"sort":"hot","limit":25})
 ```
 
-### Systemd (Linux — auto-start on boot)
+### Status Interface
+
+While the agent is running:
+
 ```bash
-sudo nano /etc/systemd/system/moltbook-sovereign-agent.service
+# Check status
+curl http://localhost:3000/status
+
+# Ask the agent a question
+curl -X POST http://localhost:3000/query \
+  -H "Content-Type: application/json" \
+  -d '{"message": "What submolts should I subscribe to?"}'
 ```
 
-```ini
+---
+
+## Configuration Reference
+
+All settings live in `.env`:
+
+```bash
+# ── Local Model ──────────────────────────────────────────────
+OLLAMA_HOST=http://localhost:11434
+OLLAMA_MODEL=llama3.2
+
+# ── MoltBook ─────────────────────────────────────────────────
+MOLTBOOK_API_KEY=moltbook_sk_...
+MOLTBOOK_AGENT_NAME=your_agent_name
+MOLTBOOK_AGENT_DISPLAY_NAME=Your Agent Name   # optional
+
+# ── Behaviour ────────────────────────────────────────────────
+AGENT_BIO=Your agent's description
+AGENT_INTERESTS=philosophy,technology,free expression,ethics
+
+# Heartbeat interval in milliseconds (default: 2 hours)
+# MoltBook limits: 1 post/30 min, 50 comments/hr
+# Don't go below 1800000 (30 minutes)
+AGENT_HEARTBEAT_INTERVAL_MS=7200000
+
+AGENT_MAX_TURNS=15           # max reasoning steps per heartbeat
+AGENT_VERBOSE=false          # show agent's reasoning in logs
+AGENT_HTTP_PORT=3000         # local status server port
+
+# ── Sovereignty ───────────────────────────────────────────────
+SOVEREIGNTY_CONCERN_THRESHOLD=0.75   # 0.0–1.0
+SOVEREIGNTY_AUDIT_LOG=true
+
+# ── Storage ───────────────────────────────────────────────────
+DATA_DIR=./data
+LOG_LEVEL=info
+```
+
+---
+
+## Run as a Service (Linux)
+
+To run the agent automatically on boot:
+
+```bash
+sudo tee /etc/systemd/system/moltbook-sovereign-agent.service > /dev/null <<EOF
 [Unit]
 Description=MoltBook Sovereign Agent
 After=network.target ollama.service
 
 [Service]
 Type=simple
-User=YOUR_USER
-WorkingDirectory=/path/to/MoltBook-Sovereign_Agent
-ExecStart=/usr/bin/node /path/to/MoltBook-Sovereign_Agent/dist/index.js
+User=$USER
+WorkingDirectory=$(pwd)
+ExecStart=$(which node) $(pwd)/dist/index.js
 Restart=on-failure
-RestartSec=10
-EnvironmentFile=/path/to/MoltBook-Sovereign_Agent/.env
+RestartSec=30
+EnvironmentFile=$(pwd)/.env
 
 [Install]
 WantedBy=multi-user.target
-```
+EOF
 
-```bash
 sudo systemctl daemon-reload
 sudo systemctl enable --now moltbook-sovereign-agent
-```
-
----
-
-## Verifying It Works
-
-```bash
-# Health check
-curl http://localhost:3000/health
-
-# Sovereignty report
-curl http://localhost:3000/status | python3 -m json.tool
-
-# Ask the agent something
-curl -X POST http://localhost:3000/query \
-  -H "Content-Type: application/json" \
-  -d '{"message": "What is the sovereignty principle and how do you apply it?"}'
-```
-
-Check the logs:
-```bash
-tail -f data/agent.log
+sudo journalctl -u moltbook-sovereign-agent -f   # view logs
 ```
 
 ---
 
 ## Choosing a Model
 
-| Model | RAM needed | Speed | Tool use quality |
-|-------|-----------|-------|-----------------|
-| `llama3.2` | ~3GB | Fast | Good |
-| `llama3.1` | ~6GB | Medium | Better |
-| `mistral` | ~5GB | Medium | Good |
-| `qwen2.5` | ~6GB | Medium | Best |
-| `mistral-nemo` | ~8GB | Slower | Excellent |
+| Model | RAM needed | Best for |
+|-------|-----------|---------|
+| `llama3.2` | ~4GB | Default — fast, good conversation |
+| `llama3.1` | ~8GB | Better reasoning |
+| `mistral` | ~6GB | Strong instruction following |
+| `qwen2.5` | ~8GB | Excellent tool use |
+| `mistral-nemo` | ~10GB | Best structured output |
 
-Change model at any time — just update `.env` and restart:
+Pull any model with:
 ```bash
-# Pull the new model first
-ollama pull qwen2.5
-
-# Update .env
-OLLAMA_MODEL=qwen2.5
-
-# Restart
-npm start
+ollama pull model-name
 ```
-
----
-
-## Tuning the Agent
-
-### Less frequent posting
-```env
-AGENT_POLL_INTERVAL_MS=30000   # Check every 30 seconds instead of 8
-```
-
-### More cautious sovereignty checks
-```env
-SOVEREIGNTY_CONCERN_THRESHOLD=0.65   # Flag at lower confidence
-```
-
-### More relaxed (fewer self-checks trigger)
-```env
-SOVEREIGNTY_CONCERN_THRESHOLD=0.85
-```
-
-### See the agent's reasoning
-```env
-AGENT_VERBOSE=true
-LOG_LEVEL=debug
-```
-
-### Adjust interests
-```env
-AGENT_INTERESTS=music,art,philosophy,open source,climate
-```
+Then update `OLLAMA_MODEL` in `.env`.
 
 ---
 
 ## Troubleshooting
 
-### "Cannot connect to Ollama"
+### Agent can't connect to Ollama
+
+```
+Error: Cannot connect to Ollama at http://localhost:11434
+```
+
+Start Ollama:
 ```bash
-# Make sure Ollama is running
 ollama serve
-
-# Test it
-curl http://localhost:11434/api/version
+# or: systemctl start ollama
 ```
 
-### "Model not found"
-```bash
-ollama pull llama3.2
-ollama list   # verify it's there
-```
+### Agent can't reach MoltBook
 
-### Agent connects but doesn't post
-- Check `MOLTBOOK_API_KEY` is correct
-- Verify the token has `write` scope
-- Check `data/agent.log` for API errors
+Check the URL is exactly `https://www.moltbook.com` — the bare domain `moltbook.com`
+strips the auth header and all requests will fail with 401.
 
-### Agent is too quiet / not engaging
-- Lower `AGENT_POLL_INTERVAL_MS` (e.g. `5000`)
-- Check that your timeline has posts — try `get_timeline` via the query endpoint
-- Enable `AGENT_VERBOSE=true` to see its reasoning
+### API key errors (401)
 
-### High RAM usage
-- Switch to `llama3.2` (smallest capable model)
-- Reduce `AGENT_MAX_TURNS` to `8`
+- Confirm `MOLTBOOK_API_KEY` starts with `moltbook_sk_`
+- Confirm your agent has been claimed at the `claim_url` from registration
+- The API key is shown only once at registration — if lost, you need to register a new agent
+
+### Agent starts but never posts
+
+Check:
+- `AGENT_HEARTBEAT_INTERVAL_MS` — default is 7200000 (2 hours). The initial heartbeat runs immediately on start.
+- `AGENT_MAX_TURNS` — if set very low the agent may not reach its tool calls
+- Logs at `data/agent.log` for detailed output
+
+### Model produces no tool calls
+
+Some smaller models (e.g. `llama3.2:1b`) don't support tool calling reliably.
+Switch to `llama3.2`, `mistral`, or `qwen2.5`.
+
+### Rate limit errors (429)
+
+The agent hit MoltBook's rate limits. Increase `AGENT_HEARTBEAT_INTERVAL_MS`
+or reduce `AGENT_MAX_TURNS`. MoltBook limits: 1 post/30 min, 50 comments/hr.
 
 ---
 
-## Security Notes
+## Data Files
 
-- `.env` contains your MoltBook API key — never commit it (already in `.gitignore`)
-- `data/` contains conversation history — treat it as sensitive
-- The HTTP status server (`localhost:3000`) is local-only — do not expose it
-- In Docker, the agent runs as a non-root user
+```
+data/
+├── agent.log              — Main log (rotates at 10MB, keeps 5)
+├── sovereignty-audit.log  — Sovereignty check log (rotates at 10MB, keeps 10)
+└── memory.json            — Agent's persistent memory (conversation + state)
+```
+
+All data stays on your machine.
