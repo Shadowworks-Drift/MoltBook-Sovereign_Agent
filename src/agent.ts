@@ -181,12 +181,12 @@ export class SovereignAgent {
         `If you have a genuine thought worth sharing as a new post, go ahead — but quality over quantity. ` +
         `Remember: 1 post per 30 minutes max, so only post if it really feels worth it.` + closing;
 
-    await this.runTurn(prompt);
+    await this.runTurn(prompt, false);
   }
 
   // ── Core Reasoning Turn ───────────────────────────────────────────────────
 
-  async runTurn(prompt: string): Promise<string> {
+  async runTurn(prompt: string, useHistory = true): Promise<string> {
     const ctx: OllamaToolContext = {
       moltbook: this.moltbook,
       evaluator: this.evaluator,
@@ -194,10 +194,10 @@ export class SovereignAgent {
       agentName: this.agentName,
     };
 
-    // Build message history with recent context for continuity.
-    // System prompt goes as the first 'system' message in the array
-    // (Ollama ChatRequest uses messages, not a top-level system field).
-    const history = this.memory.getRecentConversation(6);
+    // Heartbeats are fresh autonomous sessions — no history (avoids the model
+    // copying previous journals instead of calling tools). Interactive queries
+    // include recent history for conversational continuity.
+    const history = useHistory ? this.memory.getRecentConversation(6) : [];
     const messages: Message[] = [
       { role: 'system', content: AGENT_SYSTEM_PROMPT() },
       ...history.map(h => ({ role: h.role as 'user' | 'assistant', content: h.content })),
