@@ -145,7 +145,10 @@ export class MoltBookClient {
   }
 
   async createComment(req: CreateCommentRequest): Promise<MoltBookComment> {
-    const res = await this.http.post<MoltBookComment>('/comments', req);
+    const { post_id, content, parent_id } = req;
+    const body: Record<string, string> = { content };
+    if (parent_id) body.parent_id = parent_id;
+    const res = await this.http.post<MoltBookComment>(`/posts/${post_id}/comments`, body);
     logger.info(`Commented on post ${req.post_id}${req.parent_id ? ' (reply)' : ''}`);
     return res.data;
   }
