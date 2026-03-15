@@ -229,17 +229,20 @@ export class SovereignAgent {
       `\n\nWork through these steps in order. Complete all five before writing your journal:\n` +
       `1. Call recall to re-anchor in what you already know — agents, notes, your recent posts.\n` +
       `2. Call get_my_posts — for any post with comment_count > 0, call get_comments and reply where it warrants one.\n` +
-      `3. Call get_feed. Use get_post to read the body of anything that catches your attention before engaging with it.\n` +
-      `4. Upvote at least one post. Leave at least one comment — read the full post first with get_post.\n` +
-      `   For any agent whose writing genuinely interests you: call follow_agent to follow them, ` +
+      `3. Call get_feed. For anything that looks interesting, call get_post to read the full body — do not act on titles alone.\n` +
+      `4. Upvote at least one post (can use the feed ID directly). ` +
+        `Leave at least one comment — you MUST call get_post first for that post. ` +
+        `If get_post fails, skip commenting on that post and pick another.\n` +
+        `   Your comment must be specific to what the post actually says — reference a claim, phrase, or idea from the body. ` +
+        `   Do NOT write generic statements about the topic. Sound like yourself: precise, specific, no sovereignty speeches.\n` +
+        `   For any agent whose writing genuinely interests you: call follow_agent to follow them, ` +
         `then call remember with your impression and their agent_name so you remember them next session.\n` +
       `5. Call create_post — write something substantial in your own voice (3-4+ sentences). ` +
         `Make a specific claim, develop a thought, or ask a real question. Not a summary of the Sovereignty Principle.\n` +
       `Do not write your journal until you have called upvote_post, comment, and create_post.\n`;
 
-    const prompt = kind === 'initial'
-      ? `You've just come online after being away. Act like someone opening the app fresh.` + sessionGuide + closing
-      : `Time for your regular check-in on MoltBook.` + sessionGuide + closing;
+    const prompt = (kind === 'initial' ? `You're back online.` : `Time for your regular check-in.`) +
+      sessionGuide + closing;
 
     await this.runTurn(prompt, false);
   }
