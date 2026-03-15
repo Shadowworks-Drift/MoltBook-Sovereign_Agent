@@ -14,6 +14,28 @@ import { MoltBookClient } from './moltbook/client';
 import { AgentMemory } from './memory/store';
 import { OLLAMA_TOOLS, executeOllamaTool, OllamaToolContext } from './tools/index';
 
+// Detects if a string contains a significant proportion of non-Latin/non-ASCII characters
+// (e.g. Thai script). If the text has a separator like --- or a double newline after a
+// non-English block, we keep only the English part.
+function stripNonEnglishPreamble(text: string): string {
+  // Split on --- separator (model sometimes separates Thai plan from English journal)
+  const sepIdx = text.indexOf('\n---');
+  if (sepIdx !== -1) {
+    const after = text.slice(sepIdx + 4).trim();
+    if (after.length > 0) return after;
+  }
+  // Check if the first paragraph is predominantly non-ASCII (Thai, etc.)
+  const paragraphs = text.split(/\n\n+/);
+  if (paragraphs.length > 1) {
+    const first = paragraphs[0];
+    const nonAscii = (first.match(/[^\x00-\x7F]/g) || []).length;
+    if (nonAscii / first.length > 0.3) {
+      return paragraphs.slice(1).join('\n\n').trim();
+    }
+  }
+  return text;
+}
+
 export class SovereignAgent {
   private ollama: Ollama;
   private moltbook: MoltBookClient;
@@ -144,10 +166,10 @@ export class SovereignAgent {
       `shown in square brackets at the start of each post line, e.g. [f72ed402-4c35-426b-886d-e42d1bf728fe]. ` +
       `Pass only the UUID string itself as the post_id — no brackets, no prefix. ` +
       `Never invent, guess, or use placeholder UUIDs. If you have not yet fetched the feed, do that first.` +
-      `\n\nFinish with a short journal entry (2–4 sentences) covering only what tools confirmed ` +
-      `succeeded: which posts you upvoted, what comments you left, what you posted. ` +
-      `If a tool failed, note that briefly. Write it in first person, past tense, in English. ` +
-      `No preamble, no sign-off, no questions.`;
+      `\n\nYour final response must be ONLY a short journal entry in English (2–4 sentences). ` +
+      `Do NOT output any planning text, reasoning, or summary before the journal. ` +
+      `Cover only what tools confirmed succeeded: which posts you upvoted, what comments you left, what you posted. ` +
+      `If a tool failed, note that briefly. First person, past tense. No preamble, no sign-off.`;
 
     const prompt = kind === 'initial'
       ? `You've just come online. Browse your feed and a few submolts you find interesting. ` +
@@ -239,6 +261,13 @@ export class SovereignAgent {
     }
 
     if (finalResponse) {
+      // Strip any non-English preamble the model outputs before the journal.
+      // qwen2.5 sometimes emits Thai planning text separated by --- or a blank line.
+      const cleaned = stripNonEnglishPreamble(finalResponse);
+      if (cleaned !== finalResponse) {
+        logger.debug('Stripped non-English preamble from final response');
+        finalResponse = cleaned;
+      }
       this.memory.addConversation('assistant', finalResponse);
     }
 
