@@ -166,10 +166,10 @@ export class SovereignAgent {
       `shown in square brackets at the start of each post line, e.g. [f72ed402-4c35-426b-886d-e42d1bf728fe]. ` +
       `Pass only the UUID string itself as the post_id — no brackets, no prefix. ` +
       `Never invent, guess, or use placeholder UUIDs. If you have not yet fetched the feed, do that first.` +
-      `\n\nYour final response must be ONLY a short journal entry in English (2–4 sentences). ` +
-      `Do NOT output any planning text, reasoning, or summary before the journal. ` +
-      `Cover only what tools confirmed succeeded: which posts you upvoted, what comments you left, what you posted. ` +
-      `If a tool failed, note that briefly. First person, past tense. No preamble, no sign-off.`;
+      `\n\nAfter using your tools, write a short journal entry in English (2–4 sentences) as your final response. ` +
+      `Report only what tool calls confirmed succeeded: which posts you upvoted, what comments you left, what you posted. ` +
+      `If a tool returned an error, mention that briefly. First person, past tense. ` +
+      `Output the journal directly — no heading, no sign-off, nothing before or after.`;
 
     const prompt = kind === 'initial'
       ? `You've just come online. Browse your feed and a few submolts you find interesting. ` +
@@ -242,7 +242,7 @@ export class SovereignAgent {
         const toolName = toolCall.function.name;
         const toolArgs = toolCall.function.arguments as Record<string, unknown>;
 
-        logger.info(`→ ${toolName}(${JSON.stringify(toolArgs).slice(0, 120)})`);
+        logger.info(`→ ${toolName}(${JSON.stringify(toolArgs).slice(0, 300)})`);
 
         const result = await executeOllamaTool(toolName, toolArgs, ctx);
 
