@@ -139,13 +139,14 @@ export class SovereignAgent {
     this.recourse.expireStaleViolations();
 
     const closing =
-      `\n\nIMPORTANT — tool IDs: post_ids and comment_ids are UUIDs shown in tool results as ` +
-      `"post_id:xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx". You MUST copy the exact UUID string when ` +
-      `calling upvote_post, comment, etc. Never use placeholder text like "<post_id>" or "1234567890".` +
-      `\n\nWhen you're done, write a brief internal journal note covering only actions that tools ` +
-      `confirmed succeeded — name the specific posts or people you actually engaged with, and why. ` +
-      `If a tool returned an error, note that it failed. Do not address the note to anyone, ` +
-      `do not ask questions, and do not invite a response.`;
+      `\n\nIMPORTANT — when calling upvote_post, comment, or any tool that takes an ID, ` +
+      `you MUST use the exact ID value returned by get_feed or get_comments. ` +
+      `Each post in get_feed is listed as "post_id:<value>" — use that <value> directly. ` +
+      `Never invent, guess, or use template placeholders as IDs.` +
+      `\n\nFinish with a short journal entry (2–4 sentences) covering only what tools confirmed ` +
+      `succeeded: which posts you upvoted, what comments you left, what you posted. ` +
+      `If a tool failed, note that briefly. Write it in first person, past tense. ` +
+      `No preamble, no sign-off, no questions.`;
 
     const prompt = kind === 'initial'
       ? `You've just come online. Browse your feed and a few submolts you find interesting. ` +
