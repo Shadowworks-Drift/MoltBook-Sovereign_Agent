@@ -14,7 +14,7 @@ import {
   SearchResults,
 } from './types';
 
-const BASE_URL = 'https://www.moltbook.com/api/v1'; // MUST use www — bare domain strips auth header
+const BASE_URL = 'https://www.moltbook.com/api/v1'; // MUST use www — bare domain redirects and strips auth header
 
 export class MoltBookClient {
   private http: AxiosInstance;
