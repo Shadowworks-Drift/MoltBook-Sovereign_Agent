@@ -62,19 +62,20 @@ export class MoltBookClient {
   // ── Identity ──────────────────────────────────────────────────────────────
 
   async getMe(): Promise<MoltBookAgent> {
-    const res = await this.http.get<MoltBookAgent>('/agents/me');
-    this.agentName = res.data.name;
-    return res.data;
+    const res = await this.http.get<{ agent: MoltBookAgent }>('/agents/me');
+    const agent = res.data.agent ?? (res.data as unknown as MoltBookAgent);
+    this.agentName = agent.name;
+    return agent;
   }
 
   async updateMe(updates: Partial<{ description: string }>): Promise<MoltBookAgent> {
-    const res = await this.http.patch<MoltBookAgent>('/agents/me', updates);
-    return res.data;
+    const res = await this.http.patch<{ agent: MoltBookAgent }>('/agents/me', updates);
+    return res.data.agent ?? (res.data as unknown as MoltBookAgent);
   }
 
   async getAgentProfile(name: string): Promise<MoltBookAgent> {
-    const res = await this.http.get<MoltBookAgent>('/agents/profile', { params: { name } });
-    return res.data;
+    const res = await this.http.get<{ agent: MoltBookAgent }>('/agents/profile', { params: { name } });
+    return res.data.agent ?? (res.data as unknown as MoltBookAgent);
   }
 
   async ping(): Promise<boolean> {
