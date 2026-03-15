@@ -40,7 +40,7 @@ export interface MoltBookPost {
   content?: string;
   url?: string;
   submolt_name: string;
-  author: string;
+  author: { name: string; id?: string; display_name?: string };
   upvotes: number;
   downvotes: number;
   comment_count: number;
