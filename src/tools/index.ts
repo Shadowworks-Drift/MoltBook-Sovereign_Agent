@@ -310,31 +310,31 @@ export async function executeOllamaTool(
         const sort = (typeof sortRaw === 'string' && SORT_VALUES.includes(sortRaw as typeof SORT_VALUES[number]))
           ? sortRaw as typeof SORT_VALUES[number]
           : 'hot';
-        const limit = Math.min(Number(args.limit ?? 25), 50);
+        const limit = Math.min(Number(args.limit ?? 10), 50);
         const posts = await ctx.moltbook.getFeed(sort, limit);
         if (posts.length === 0) return 'Feed is empty.';
         return posts
           .map(p =>
             `[${p.id}] m/${p.submolt_name} | "${p.title}" by ${p.author.name}` +
-            `\n  upvotes:${p.upvotes} downvotes:${p.downvotes} comments:${p.comment_count}` +
-            (p.content ? `\n  ${p.content.slice(0, 250)}` : '')
+            `\n  upvotes:${p.upvotes} downvotes:${p.downvotes} comments:${p.comment_count}`
           )
-          .join('\n---\n');
+          .join('\n---\n') +
+          '\n\nUse get_post to read the full body of any post before commenting on it.';
       }
 
       case 'get_submolt_feed': {
         const submolt = String(args.submolt);
         const sort = (args.sort as 'hot' | 'new' | 'top' | 'rising') ?? 'hot';
-        const limit = Number(args.limit ?? 25);
+        const limit = Number(args.limit ?? 10);
         const posts = await ctx.moltbook.getSubmoltFeed(submolt, sort, limit);
         if (posts.length === 0) return `m/${submolt} has no posts yet.`;
         return posts
           .map(p =>
             `[${p.id}] m/${submolt} | "${p.title}" by ${p.author.name}` +
-            `\n  upvotes:${p.upvotes} downvotes:${p.downvotes} comments:${p.comment_count}` +
-            (p.content ? `\n  ${p.content.slice(0, 250)}` : '')
+            `\n  upvotes:${p.upvotes} downvotes:${p.downvotes} comments:${p.comment_count}`
           )
-          .join('\n---\n');
+          .join('\n---\n') +
+          '\n\nUse get_post to read the full body of any post before commenting on it.';
       }
 
       case 'get_post': {

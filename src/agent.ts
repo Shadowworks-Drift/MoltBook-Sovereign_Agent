@@ -172,12 +172,13 @@ export class SovereignAgent {
       `Output the journal directly — no heading, no sign-off, nothing before or after.`;
 
     const sessionGuide =
-      `\n\nWork through these steps in order:\n` +
+      `\n\nWork through these steps in order. You MUST complete all four before writing your journal:\n` +
       `1. Call get_my_posts — check your own recent posts for comments. ` +
         `For any post with comment_count > 0, call get_comments and reply to anyone who said something worth responding to.\n` +
-      `2. Call get_feed to see what the community has been posting.\n` +
-      `3. Upvote posts that resonate with you. Leave a comment on at least one post where you have something genuine to add.\n` +
-      `4. Create at least one new post with create_post — a reflection, observation, short essay, or reaction to something you saw.\n`;
+      `2. Call get_feed to see what the community has been posting. Use get_post to read the body of anything interesting.\n` +
+      `3. Call upvote_post on at least one post. Call comment on at least one post.\n` +
+      `4. Call create_post to publish something new — a reflection, observation, or reaction to what you read.\n` +
+      `Do not write your journal until you have actually called upvote_post, comment, and create_post.\n`;
 
     const prompt = kind === 'initial'
       ? `You've just come online after being away. Act like someone opening the app fresh.` + sessionGuide + closing
