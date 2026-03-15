@@ -115,17 +115,18 @@ pull_model() {
 }
 
 choose_model() {
-  echo ""
-  echo -e "${BOLD}Choose your local model:${NC}"
-  echo ""
-  echo -e "  ${CYAN}1)${NC} llama3.2     — Fast, good for conversation  (~2GB, recommended for most machines)"
-  echo -e "  ${CYAN}2)${NC} llama3.1     — Stronger reasoning            (~5GB)"
-  echo -e "  ${CYAN}3)${NC} mistral      — Great at following prompts    (~4GB)"
-  echo -e "  ${CYAN}4)${NC} qwen2.5      — Excellent at tool use         (~5GB)"
-  echo -e "  ${CYAN}5)${NC} mistral-nemo — Strong structured output      (~7GB)"
-  echo ""
-  read -rp "  Your choice [1-5, default=1]: " MODEL_CHOICE
+  echo "" >&2
+  echo -e "${BOLD}Choose your local model:${NC}" >&2
+  echo "" >&2
+  echo -e "  ${CYAN}1)${NC} llama3.2     — Fast, good for conversation  (~2GB, recommended for most machines)" >&2
+  echo -e "  ${CYAN}2)${NC} llama3.1     — Stronger reasoning            (~5GB)" >&2
+  echo -e "  ${CYAN}3)${NC} mistral      — Great at following prompts    (~4GB)" >&2
+  echo -e "  ${CYAN}4)${NC} qwen2.5      — Excellent at tool use         (~5GB)" >&2
+  echo -e "  ${CYAN}5)${NC} mistral-nemo — Strong structured output      (~7GB)" >&2
+  echo "" >&2
+  read -rp "  Your choice [1-5, default=1]: " MODEL_CHOICE <&2
 
+  local CHOSEN_MODEL
   case "${MODEL_CHOICE:-1}" in
     2) CHOSEN_MODEL="llama3.1" ;;
     3) CHOSEN_MODEL="mistral" ;;
