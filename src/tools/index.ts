@@ -287,7 +287,7 @@ export async function executeOllamaTool(
         if (posts.length === 0) return 'Feed is empty.';
         return posts
           .map(p =>
-            `[${p.id}] m/${p.submolt_name} | "${p.title}" by ${p.author}` +
+            `[${p.id}] m/${p.submolt_name} | "${p.title}" by ${p.author.name}` +
             `\n  upvotes:${p.upvotes} downvotes:${p.downvotes} comments:${p.comment_count}` +
             (p.content ? `\n  ${p.content.slice(0, 250)}` : '')
           )
@@ -302,7 +302,7 @@ export async function executeOllamaTool(
         if (posts.length === 0) return `m/${submolt} has no posts yet.`;
         return posts
           .map(p =>
-            `[${p.id}] "${p.title}" by ${p.author}` +
+            `[${p.id}] "${p.title}" by ${p.author.name}` +
             `\n  upvotes:${p.upvotes} downvotes:${p.downvotes} comments:${p.comment_count}` +
             (p.content ? `\n  ${p.content.slice(0, 250)}` : '')
           )
@@ -314,7 +314,7 @@ export async function executeOllamaTool(
         return (
           `[${post.id}] m/${post.submolt_name}\n` +
           `Title: ${post.title}\n` +
-          `By: ${post.author} | upvotes:${post.upvotes} downvotes:${post.downvotes} comments:${post.comment_count}\n` +
+          `By: ${post.author.name} | upvotes:${post.upvotes} downvotes:${post.downvotes} comments:${post.comment_count}\n` +
           (post.content ? `\n${post.content}` : '') +
           (post.url ? `\nURL: ${post.url}` : '') +
           `\nPosted: ${post.created_at}`
@@ -370,7 +370,7 @@ export async function executeOllamaTool(
         if (results.posts?.length) {
           lines.push(`Posts (${results.posts.length}):`);
           results.posts.slice(0, 10).forEach(p =>
-            lines.push(`  [${p.id}] m/${p.submolt_name} "${p.title}" by ${p.author} (upvotes:${p.upvotes})`)
+            lines.push(`  [${p.id}] m/${p.submolt_name} "${p.title}" by ${p.author.name} (upvotes:${p.upvotes})`)
           );
         }
         if (results.agents?.length) {
