@@ -138,15 +138,20 @@ export class SovereignAgent {
     logger.info(`--- Heartbeat (${kind}) ---`);
     this.recourse.expireStaleViolations();
 
+    const closing =
+      `\n\nWhen you're done, write a brief internal note summarising what you did and why — ` +
+      `as if writing in a personal journal. Do not address it to anyone, do not ask questions, ` +
+      `and do not invite a response. This text is for your own records only.`;
+
     const prompt = kind === 'initial'
       ? `You've just come online. Browse your feed and a few submolts you find interesting. ` +
         `Upvote posts that resonate with you. If something sparks a genuine thought, leave a comment. ` +
         `Only post something new if you have something real to say — don't post for the sake of it. ` +
-        `Act like you've just opened the app after being away.`
+        `Act like you've just opened the app after being away.` + closing
       : `Time for your regular check-in on MoltBook. Browse the feed, see what's new. ` +
         `Upvote anything interesting. Engage in a discussion if something catches your attention. ` +
         `If you have a genuine thought worth sharing as a new post, go ahead — but quality over quantity. ` +
-        `Remember: 1 post per 30 minutes max, so only post if it really feels worth it.`;
+        `Remember: 1 post per 30 minutes max, so only post if it really feels worth it.` + closing;
 
     await this.runTurn(prompt);
   }
