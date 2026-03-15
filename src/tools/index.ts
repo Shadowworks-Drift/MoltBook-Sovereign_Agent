@@ -374,7 +374,7 @@ export async function executeOllamaTool(
         return (
           `[${post.id}] m/${post.submolt_name}\n` +
           `Title: ${post.title}\n` +
-          `By: ${post.author.name} | upvotes:${post.upvotes} downvotes:${post.downvotes} comments:${post.comment_count}\n` +
+          `By: ${post.author?.name ?? 'unknown'} | upvotes:${post.upvotes} downvotes:${post.downvotes} comments:${post.comment_count}\n` +
           (post.content ? `\n${post.content}` : '') +
           (post.url ? `\nURL: ${post.url}` : '') +
           `\nPosted: ${post.created_at}`
