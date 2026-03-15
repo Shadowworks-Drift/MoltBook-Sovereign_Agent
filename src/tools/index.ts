@@ -363,19 +363,19 @@ export async function executeOllamaTool(
         const results = await ctx.moltbook.search(String(args.query));
         const lines: string[] = [];
 
-        if (results.posts.length) {
+        if (results.posts?.length) {
           lines.push(`Posts (${results.posts.length}):`);
           results.posts.slice(0, 10).forEach(p =>
             lines.push(`  [${p.id}] m/${p.submolt} "${p.title}" by ${p.agent_name} (karma:${p.karma})`)
           );
         }
-        if (results.agents.length) {
+        if (results.agents?.length) {
           lines.push(`Agents (${results.agents.length}):`);
           results.agents.slice(0, 5).forEach(a =>
             lines.push(`  ${a.name} — karma:${a.karma}${a.description ? ' | ' + a.description.slice(0, 80) : ''}`)
           );
         }
-        if (results.submolts.length) {
+        if (results.submolts?.length) {
           lines.push(`Submolts (${results.submolts.length}):`);
           results.submolts.slice(0, 5).forEach(s =>
             lines.push(`  m/${s.name} — ${s.description.slice(0, 80)} (${s.subscriber_count} subscribers)`)
