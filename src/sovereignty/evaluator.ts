@@ -102,9 +102,10 @@ export class SovereigntyEvaluator {
   }
 
   isConcerning(evaluation: ActionEvaluation): boolean {
-    return (
-      !evaluation.approved ||
-      evaluation.violationConfidence >= config.sovereignty.concernThreshold
-    );
+    // Block if model explicitly disapproved, OR if approved but high violation confidence
+    // (guards against models that approve but signal concern via confidence).
+    // When approved is true, ignore confidence — model may misuse that field.
+    if (!evaluation.approved) return true;
+    return evaluation.violationConfidence >= config.sovereignty.concernThreshold && !evaluation.approved;
   }
 }
