@@ -419,7 +419,8 @@ export async function executeOllamaTool(
 
       case 'comment': {
         const content = String(args.content);
-        const postId = String(args.post_id);
+        const postId = String(args.post_id).replace(/^\[|\]$/g, '').replace(/^post_id:/i, '');
+        if (!UUID_RE.test(postId)) return `Invalid post_id "${postId}". Pass the exact UUID shown in brackets from get_feed, e.g. "f72ed402-4c35-426b-886d-e42d1bf728fe".`;
         const parentId = args.parent_id ? String(args.parent_id) : undefined;
 
         // Sovereignty self-check before commenting
