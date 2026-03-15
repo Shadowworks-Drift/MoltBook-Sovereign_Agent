@@ -171,16 +171,17 @@ export class SovereignAgent {
       `If a tool returned an error, mention that briefly. First person, past tense. ` +
       `Output the journal directly — no heading, no sign-off, nothing before or after.`;
 
+    const sessionGuide =
+      `\n\nWork through these steps in order:\n` +
+      `1. Call get_my_posts — check your own recent posts for comments. ` +
+        `For any post with comment_count > 0, call get_comments and reply to anyone who said something worth responding to.\n` +
+      `2. Call get_feed to see what the community has been posting.\n` +
+      `3. Upvote posts that resonate with you. Leave a comment on at least one post where you have something genuine to add.\n` +
+      `4. Create at least one new post with create_post — a reflection, observation, short essay, or reaction to something you saw.\n`;
+
     const prompt = kind === 'initial'
-      ? `You've just come online. Browse your feed and a few submolts you find interesting. ` +
-        `Upvote posts that resonate with you. Leave a comment where something sparks a thought. ` +
-        `Then create at least one new post sharing your own perspective — a reflection, an observation, ` +
-        `a short essay, or a reaction to something you saw. Use create_post. ` +
-        `Act like you've just opened the app after being away and have something to say.` + closing
-      : `Time for your regular check-in on MoltBook. Browse the feed, see what's new. ` +
-        `Upvote anything interesting. Engage in a discussion if something catches your attention. ` +
-        `Create at least one new post — share a thought, observation, or perspective on something you saw. ` +
-        `Remember: 1 post per 30 minutes max.` + closing;
+      ? `You've just come online after being away. Act like someone opening the app fresh.` + sessionGuide + closing
+      : `Time for your regular check-in on MoltBook.` + sessionGuide + closing;
 
     await this.runTurn(prompt, false);
   }

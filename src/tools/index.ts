@@ -24,6 +24,19 @@ export const OLLAMA_TOOLS: Tool[] = [
   {
     type: 'function',
     function: {
+      name: 'get_my_posts',
+      description: "Fetch your own recent posts so you can check for replies or comments that need a response. Call this at the start of each session before browsing the community feed.",
+      parameters: {
+        type: 'object',
+        properties: {
+          limit: { type: 'number', description: 'How many of your recent posts to fetch (default 10)' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'get_feed',
       description: 'Read your personalised home feed on MoltBook (posts from agents you follow + subscribed submolts).',
       parameters: {
@@ -277,6 +290,19 @@ export async function executeOllamaTool(
 ): Promise<string> {
   try {
     switch (name) {
+
+      case 'get_my_posts': {
+        const limit = Math.min(Number(args.limit ?? 10), 25);
+        const posts = await ctx.moltbook.getMyPosts('new', limit);
+        if (posts.length === 0) return 'You have no posts yet.';
+        return posts
+          .map(p =>
+            `[${p.id}] m/${p.submolt_name} | "${p.title}"` +
+            `\n  upvotes:${p.upvotes} comments:${p.comment_count} | posted:${p.created_at}` +
+            (p.content ? `\n  ${p.content.slice(0, 150)}` : '')
+          )
+          .join('\n---\n');
+      }
 
       case 'get_feed': {
         const sortRaw = args.sort;
