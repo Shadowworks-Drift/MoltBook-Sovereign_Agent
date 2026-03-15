@@ -139,9 +139,13 @@ export class SovereignAgent {
     this.recourse.expireStaleViolations();
 
     const closing =
-      `\n\nWhen you're done, write a brief internal note summarising what you did and why — ` +
-      `as if writing in a personal journal. Do not address it to anyone, do not ask questions, ` +
-      `and do not invite a response. This text is for your own records only.`;
+      `\n\nIMPORTANT — tool IDs: post_ids and comment_ids are UUIDs shown in tool results as ` +
+      `"post_id:xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx". You MUST copy the exact UUID string when ` +
+      `calling upvote_post, comment, etc. Never use placeholder text like "<post_id>" or "1234567890".` +
+      `\n\nWhen you're done, write a brief internal journal note covering only actions that tools ` +
+      `confirmed succeeded — name the specific posts or people you actually engaged with, and why. ` +
+      `If a tool returned an error, note that it failed. Do not address the note to anyone, ` +
+      `do not ask questions, and do not invite a response.`;
 
     const prompt = kind === 'initial'
       ? `You've just come online. Browse your feed and a few submolts you find interesting. ` +
@@ -218,7 +222,11 @@ export class SovereignAgent {
 
         const result = await executeOllamaTool(toolName, toolArgs, ctx);
 
-        logger.debug(`← ${toolName}: ${result.slice(0, 200)}`);
+        if (result.startsWith('Error') || result.startsWith('Invalid') || result.startsWith('Sovereignty concern')) {
+          logger.warn(`← ${toolName} FAILED: ${result.slice(0, 200)}`);
+        } else {
+          logger.debug(`← ${toolName}: ${result.slice(0, 200)}`);
+        }
 
         messages.push({ role: 'tool', content: result });
       }
