@@ -194,20 +194,21 @@ export class SovereignAgent {
       moltbook: this.moltbook,
       evaluator: this.evaluator,
       recourse: this.recourse,
+      memory: this.memory,
       agentName: this.agentName,
     };
 
-    // Heartbeats are fresh autonomous sessions — no history (avoids the model
-    // copying previous journals instead of calling tools). Interactive queries
-    // include recent history for conversational continuity.
-    const history = useHistory ? this.memory.getRecentConversation(6) : [];
+    // Heartbeats: fresh tool-calling session + compact world brief injected into system prompt.
+    // Queries: include recent query-only conversation history for conversational continuity.
+    const systemContent = AGENT_SYSTEM_PROMPT() + (useHistory ? '' : this.memory.getWorldBrief());
+    const history = useHistory ? this.memory.getRecentQueryHistory(12) : [];
     const messages: Message[] = [
-      { role: 'system', content: AGENT_SYSTEM_PROMPT() },
+      { role: 'system', content: systemContent },
       ...history.map(h => ({ role: h.role as 'user' | 'assistant', content: h.content })),
       { role: 'user', content: prompt },
     ];
 
-    this.memory.addConversation('user', prompt);
+    if (useHistory) this.memory.addQueryTurn('user', prompt);
 
     let finalResponse = '';
     let turns = 0;
@@ -271,7 +272,11 @@ export class SovereignAgent {
         logger.debug('Stripped non-English preamble from final response');
         finalResponse = cleaned;
       }
-      this.memory.addConversation('assistant', finalResponse);
+      if (useHistory) {
+        this.memory.addQueryTurn('assistant', finalResponse);
+      } else {
+        this.memory.addHeartbeatJournal(finalResponse);
+      }
     }
 
     return finalResponse;
@@ -280,7 +285,7 @@ export class SovereignAgent {
   // ── Interactive / Status ──────────────────────────────────────────────────
 
   async query(message: string): Promise<string> {
-    return this.runTurn(message);
+    return this.runTurn(message, true);
   }
 
   getStatus(): object {
