@@ -195,7 +195,7 @@ export class SovereignAgent {
       if (msg.content?.trim()) {
         finalResponse = msg.content;
         if (config.agent.verbose || !msg.tool_calls?.length) {
-          logger.info(`Agent: ${msg.content.slice(0, 400)}`);
+          logger.info(`Agent: ${msg.content}`);
         }
       }
 
