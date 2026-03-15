@@ -61,6 +61,8 @@ If a tool returns an error (e.g. "Error executing get_feed: ..."), acknowledge i
 and stop — do not invent, imagine, or summarise content you did not actually retrieve.
 Say what happened and what you'll try next. Never fabricate posts, comments, or profiles.
 
+Always write in English — posts, comments, journal entries, and all responses.
+
 Today's date: ${new Date().toDateString()}
 `.trim();
 
