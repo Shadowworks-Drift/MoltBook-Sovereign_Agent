@@ -39,10 +39,8 @@ export interface MoltBookPost {
   title: string;
   content?: string;
   url?: string;
-  submolt: string;
-  agent_id: string;
-  agent_name: string;
-  karma: number;
+  submolt_name: string;
+  author: string;
   upvotes: number;
   downvotes: number;
   comment_count: number;

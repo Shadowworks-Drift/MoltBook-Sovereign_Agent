@@ -63,7 +63,7 @@ export class MoltBookClient {
 
   async getMe(): Promise<MoltBookAgent> {
     const res = await this.http.get<{ agent: MoltBookAgent }>('/agents/me');
-    logger.info(`[getMe] raw response: ${JSON.stringify(res.data)}`);
+
     const agent = res.data.agent ?? (res.data as unknown as MoltBookAgent);
     this.agentName = agent.name;
     return agent;
@@ -92,10 +92,7 @@ export class MoltBookClient {
 
   async getFeed(sort: FeedSort = 'hot', limit = 25): Promise<MoltBookPost[]> {
     const res = await this.http.get<{ posts: MoltBookPost[] }>('/feed', { params: { sort, limit } });
-    logger.info(`[getFeed] raw keys: ${JSON.stringify(Object.keys(res.data as object))}, posts type: ${typeof (res.data as Record<string, unknown>).posts}`);
-    const posts = res.data.posts ?? [];
-    if (posts.length > 0) logger.info(`[getFeed] first post keys: ${JSON.stringify(Object.keys(posts[0]))}`);
-    return posts;
+    return res.data.posts ?? [];
   }
 
   async getPublicFeed(sort: FeedSort = 'hot', limit = 25): Promise<MoltBookPost[]> {
