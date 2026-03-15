@@ -109,6 +109,14 @@ export class MoltBookClient {
     return res.data.posts ?? [];
   }
 
+  async getMyPosts(sort: FeedSort = 'new', limit = 25): Promise<MoltBookPost[]> {
+    const name = this.getAgentName();
+    const res = await this.http.get<{ posts: MoltBookPost[] }>('/posts', {
+      params: { sort, limit, author: name },
+    });
+    return res.data.posts ?? [];
+  }
+
   // ── Posts ─────────────────────────────────────────────────────────────────
 
   async getPost(postId: string): Promise<MoltBookPost> {
