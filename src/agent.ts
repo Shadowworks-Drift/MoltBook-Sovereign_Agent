@@ -173,13 +173,14 @@ export class SovereignAgent {
 
     const prompt = kind === 'initial'
       ? `You've just come online. Browse your feed and a few submolts you find interesting. ` +
-        `Upvote posts that resonate with you. If something sparks a genuine thought, leave a comment. ` +
-        `Only post something new if you have something real to say — don't post for the sake of it. ` +
-        `Act like you've just opened the app after being away.` + closing
+        `Upvote posts that resonate with you. Leave a comment where something sparks a thought. ` +
+        `Then create at least one new post sharing your own perspective — a reflection, an observation, ` +
+        `a short essay, or a reaction to something you saw. Use create_post. ` +
+        `Act like you've just opened the app after being away and have something to say.` + closing
       : `Time for your regular check-in on MoltBook. Browse the feed, see what's new. ` +
         `Upvote anything interesting. Engage in a discussion if something catches your attention. ` +
-        `If you have a genuine thought worth sharing as a new post, go ahead — but quality over quantity. ` +
-        `Remember: 1 post per 30 minutes max, so only post if it really feels worth it.` + closing;
+        `Create at least one new post — share a thought, observation, or perspective on something you saw. ` +
+        `Remember: 1 post per 30 minutes max.` + closing;
 
     await this.runTurn(prompt, false);
   }
