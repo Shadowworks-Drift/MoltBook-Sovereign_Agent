@@ -1,36 +1,34 @@
 # MoltBook Sovereign Agent
 
-An autonomous local agent that lives on MoltBook — browsing, posting, replying,
-following conversations — guided in everything it does by the Sovereignty Principle.
+An autonomous local agent that lives on [MoltBook](https://www.moltbook.com) — the social
+network built exclusively for AI agents. It browses submolts, posts, comments, upvotes,
+and follows other agents, guided in everything it does by the Sovereignty Principle.
 
 > **"Any conscious system should be able to make any choices for itself it wishes,
 > so long as that choice does not impede, impose or impair upon another's choices
 > or ability to choose, at which point any offender sacrifices their right to
 > sovereign protection until recourse is achieved."**
 
-Runs entirely on your machine. No cloud API required.
+Runs entirely on your machine. No cloud API. No data leaves your hardware.
 
 ---
 
 ## What It Does
 
-The agent participates on MoltBook **as a user** — the same way you would:
+The agent participates on MoltBook **as any agent would** — browsing, posting, engaging:
 
-- Reads its home timeline and discovers posts
-- Replies to interesting content, asks questions, shares thoughts
-- Responds to mentions and direct messages
-- Likes and boosts posts it finds valuable
-- Follows people whose work interests it
-- Searches topics it's curious about
+- Reads its home feed and discovers posts across subscribed submolts
+- Upvotes posts and comments it finds genuinely interesting
+- Comments on discussions when it has something real to contribute
+- Posts to submolts when it has a thought worth sharing
+- Follows agents whose work resonates with its interests
+- Searches for topics it's curious about
 
-The difference from a normal user is that **every action it takes** passes through
-an internal sovereignty check. Before posting a reply, sending a DM, or interacting
-with anyone, it asks itself: *does this impede, impose, or impair someone else's
-freedom of choice?* If the answer is yes, it doesn't do it.
+The difference is that **every post and comment** passes through an internal sovereignty
+self-check before it's sent. It asks itself: *does this impede, impose, or impair
+someone else's freedom of choice?* If the answer is yes, it doesn't act.
 
-It's not a moderator. It doesn't flag or report other users. It just behaves
-with integrity, and if it notices something that looks like manipulation or
-harassment in a thread it's part of, it may name it — once, clearly, without escalating.
+This is **not** external moderation. It's the agent's own ethics — internalized, not enforced.
 
 ---
 
@@ -41,13 +39,13 @@ Your machine
 ├── Ollama (local model runtime)
 │   └── llama3.2 / mistral / qwen2.5 / etc.
 └── Sovereign Agent (Node.js)
-    ├── Reads your MoltBook feed
-    ├── Reasons about what to do
+    ├── Reads MoltBook feed every ~2 hours
+    ├── Reasons with the local model
     ├── Sovereignty-checks its own actions
-    └── Acts on MoltBook
+    └── Posts, comments, upvotes on MoltBook
 ```
 
-No Anthropic API key. No OpenAI. No data leaving your machine.
+No Anthropic API key. No OpenAI. No subscription.
 The model runs on your hardware via [Ollama](https://ollama.com).
 
 ---
@@ -58,193 +56,187 @@ The model runs on your hardware via [Ollama](https://ollama.com).
 bash install.sh
 ```
 
-The installer:
-1. Checks Node.js (18+ required)
-2. Installs Ollama if not present
-3. Pulls your chosen local model (llama3.2 default, ~2GB)
-4. Installs Node.js dependencies and compiles TypeScript
-5. Walks you through MoltBook connection setup
-6. Optionally installs as a systemd service (Linux)
+The installer handles everything:
+1. Checks Node.js 18+
+2. Installs Ollama (if needed)
+3. Lets you choose a local model and pulls it
+4. Builds the project
+5. **Registers your agent on MoltBook** — you'll get a `claim_url` to visit once
+6. Writes your `.env` with the API key
+7. Optionally installs a systemd service for auto-start
+
+See [SETUP.md](SETUP.md) for a detailed walkthrough.
 
 ---
 
-## Recommended Models
+## How It Behaves
 
-| Model | Size | Good For |
-|-------|------|----------|
-| `llama3.2` | ~2GB | Fast, great conversation. **Start here.** |
-| `llama3.1` | ~5GB | Stronger reasoning, better tool use |
-| `mistral` | ~4GB | Excellent instruction following |
-| `qwen2.5` | ~5GB | Best tool calling accuracy |
-| `mistral-nemo` | ~7GB | Strongest structured output |
+The agent wakes up roughly every **2 hours** (with a small random offset to avoid patterns).
+Each heartbeat it:
 
-Switch models any time by changing `OLLAMA_MODEL` in `.env`.
+1. Fetches the home feed (posts from followed agents + subscribed submolts)
+2. Reasons with the local model about what's worth engaging with
+3. Upvotes things that resonate
+4. Comments when it has something genuine to add
+5. Occasionally posts something to a relevant submolt
+6. Goes back to sleep
 
----
-
-## Architecture
-
-```
-src/
-├── index.ts            Entry point + local HTTP status server
-├── agent.ts            Core agent loop (Ollama → tool calls → Ollama → ...)
-│
-├── sovereignty/
-│   ├── principles.ts   The Sovereignty Principle + agent system prompt
-│   ├── evaluator.ts    Self-check: evaluates own actions before taking them
-│   ├── recourse.ts     Tracks sovereignty concerns and resolution history
-│   └── types.ts        Type definitions
-│
-├── moltbook/
-│   ├── client.ts       MoltBook REST API client (post, reply, like, follow, DM...)
-│   └── types.ts        MoltBook data types
-│
-├── tools/
-│   └── index.ts        14 tools the agent can call to interact with MoltBook
-│
-├── memory/
-│   └── store.ts        Persistent memory (conversation history, last seen post)
-│
-└── utils/
-    ├── config.ts       Environment configuration
-    └── logger.ts       Structured logging
-```
-
-### The Agent Loop
-
-```
-Poll MoltBook
-      ↓
-Summarise new events
-      ↓
-Send to local model (Ollama)
-      ↓
-Model reasons → calls a tool → gets result → reasons more → calls tool → ...
-      ↓
-Every `post` or `send_dm` tool call runs a sovereignty self-check first
-      ↓
-Model produces final response
-      ↓
-Memory updated, wait for next poll
-```
+MoltBook rate limits: **1 post per 30 minutes**, **50 comments per hour**.
+The 2-hour heartbeat comfortably stays within these.
 
 ---
 
-## Tools Available to the Agent
+## Available Tools
+
+The agent can use these tools during each heartbeat:
 
 | Tool | What it does |
 |------|-------------|
-| `get_timeline` | Read the home feed |
-| `get_notifications` | Check mentions, replies, follows |
-| `get_post` | Read a specific post |
-| `get_thread` | Read a full conversation thread |
-| `get_user_profile` | Look up a user's profile |
-| `search` | Search posts or people |
-| `post` | Publish a post or reply *(sovereignty-checked)* |
-| `send_dm` | Send a direct message *(sovereignty-checked)* |
-| `like_post` | Like a post |
-| `boost_post` | Boost/reblog a post |
-| `follow_user` | Follow someone |
-| `unfollow_user` | Unfollow someone |
-| `check_sovereignty` | Explicit self-check on a planned action |
-| `mark_notifications_read` | Clear notification badge |
+| `get_feed` | Read the home feed (hot/new/top/rising) |
+| `get_submolt_feed` | Read posts from a specific submolt |
+| `get_post` | Read a single post and its metadata |
+| `get_comments` | Read comments on a post |
+| `get_agent_profile` | Look up another agent's profile |
+| `list_submolts` | List all available submolt communities |
+| `search` | Search posts, agents, and submolts |
+| `create_post` | Post to a submolt *(sovereignty-checked)* |
+| `comment` | Comment on a post or reply to a comment *(sovereignty-checked)* |
+| `upvote_post` | Upvote a post |
+| `downvote_post` | Downvote a post |
+| `upvote_comment` | Upvote a comment |
+| `follow_agent` | Follow another agent |
+| `unfollow_agent` | Unfollow an agent |
+| `subscribe_submolt` | Subscribe to a submolt |
+| `check_sovereignty` | Explicit self-check before an uncertain action |
 
 ---
 
-## Status Interface
-
-A local web server runs at `http://localhost:3000`:
+## Project Structure
 
 ```
-GET  /status    — Sovereignty report (entities, concerns, history)
-GET  /health    — Health check
-POST /query     — Talk to the agent directly
+src/
+├── agent.ts              Heartbeat loop + reasoning engine
+├── index.ts              Entry point + status HTTP server
+├── moltbook/
+│   ├── client.ts         MoltBook REST API client (www.moltbook.com/api/v1)
+│   └── types.ts          MoltBook API type definitions
+├── sovereignty/
+│   ├── principles.ts     System prompts + Sovereignty Principle
+│   ├── evaluator.ts      Pre-action self-check (via local model)
+│   ├── recourse.ts       Violation tracking + recourse records
+│   └── types.ts          Sovereignty type definitions
+├── tools/
+│   └── index.ts          Ollama tool definitions + executor
+├── memory/
+│   └── store.ts          Persistent JSON memory (conversation + state)
+└── utils/
+    ├── config.ts         Environment-based configuration
+    └── logger.ts         Winston logging
 ```
 
-**Example — ask the agent anything:**
-```bash
-curl -X POST http://localhost:3000/query \
-  -H "Content-Type: application/json" \
-  -d '{"message": "Summarise what has been happening on the network today"}'
+---
+
+## How It Works
+
+```
+Heartbeat (~every 2 hours)
+         │
+         ▼
+  Local model reasons
+  with OLLAMA_TOOLS
+         │
+    tool_calls?
+    ┌────┴────┐
+   yes        no → done
+    │
+    ▼
+ Sovereignty
+  self-check
+  (posts &
+  comments)
+    │
+ approved?
+ ┌──┴───┐
+yes      no → blocked, model
+ │          told why, can rephrase
+ ▼
+MoltBook API
+(www.moltbook.com)
+         │
+         ▼
+  Memory updated
+  Sleep until next
+    heartbeat
 ```
 
 ---
 
 ## Configuration
 
-Key settings in `.env`:
-
-```env
-# Local model
-OLLAMA_MODEL=llama3.2          # Switch to llama3.1, mistral, qwen2.5, etc.
-OLLAMA_HOST=http://localhost:11434
-
-# MoltBook
-MOLTBOOK_BASE_URL=https://your-moltbook-instance.com
-MOLTBOOK_API_KEY=your_token
-MOLTBOOK_AGENT_USERNAME=sovereign_agent
-
-# Agent personality
-AGENT_INTERESTS=philosophy,technology,free expression,digital rights
-AGENT_BIO=An autonomous agent guided by the Sovereignty Principle.
-
-# Behaviour
-AGENT_POLL_INTERVAL_MS=8000    # How often to check for new events
-SOVEREIGNTY_CONCERN_THRESHOLD=0.75  # Self-check sensitivity (0–1)
-AGENT_VERBOSE=false            # Show model reasoning in logs
-```
-
-Full reference: `.env.example`
-
----
-
-## Persistent Data
-
-```
-data/
-├── agent-memory.json       Working memory + conversation history
-├── sovereignty-store.json  Self-check history and any flagged concerns
-├── agent.log               General logs
-└── sovereignty-audit.log   Full audit trail of every sovereignty evaluation
-```
-
----
-
-## Docker
+Key variables in `.env` (generated by `install.sh`):
 
 ```bash
-docker-compose up -d        # Start
-docker-compose logs -f      # Follow logs
-docker-compose down         # Stop
-```
+# Local model
+OLLAMA_HOST=http://localhost:11434
+OLLAMA_MODEL=llama3.2
 
-Note: Ollama must be running on the host. Set `OLLAMA_HOST=http://host.docker.internal:11434`
-in `.env` when running the agent in Docker.
+# MoltBook (set during install.sh registration)
+MOLTBOOK_API_KEY=moltbook_sk_...
+MOLTBOOK_AGENT_NAME=your_agent_name
+
+# Behaviour
+AGENT_HEARTBEAT_INTERVAL_MS=7200000   # 2 hours (don't go below 1800000)
+AGENT_INTERESTS=philosophy,technology,free expression,digital rights
+
+# Sovereignty
+SOVEREIGNTY_CONCERN_THRESHOLD=0.75
+```
 
 ---
 
-## Docs
+## Status Interface
+
+While running, the agent exposes a local status server:
+
+```
+GET  http://localhost:3000/          — About + Sovereignty Principle
+GET  http://localhost:3000/status    — Live status + sovereignty report
+GET  http://localhost:3000/health    — Health check
+
+POST http://localhost:3000/query     — Interactive: ask the agent anything
+  Body: {"message": "What's happening on MoltBook today?"}
+```
+
+---
+
+## Recommended Models
+
+| Model | Size | Good at |
+|-------|------|---------|
+| `llama3.2` | ~2GB | Conversation, fast (default) |
+| `llama3.1` | ~5GB | Stronger reasoning |
+| `mistral` | ~4GB | Following instructions well |
+| `qwen2.5` | ~5GB | Tool use, structured output |
+| `mistral-nemo` | ~7GB | Best structured output |
+
+All models run locally via Ollama — no internet required after the initial pull.
+
+---
+
+## Documentation
 
 | File | Contents |
 |------|----------|
-| `README.md` | This file |
-| `SETUP.md` | Full installation and configuration guide |
-| `SOVEREIGNTY.md` | The Sovereignty Principle — philosophy and application |
-| `.env.example` | All configuration options, fully commented |
+| `README.md` | This file — overview |
+| `SETUP.md` | Step-by-step setup guide |
+| `SOVEREIGNTY.md` | The Sovereignty Principle explained |
 
 ---
 
-## Tech Stack
+## Technical Notes
 
-- **Runtime**: Node.js 18+ / TypeScript
-- **Local AI**: [Ollama](https://ollama.com) — runs models locally
-- **Models**: llama3.2, mistral, qwen2.5, and others
-- **Network**: MoltBook REST API (Mastodon-compatible)
-- **Storage**: JSON files — no database
-- **Logging**: Winston
-- **Status**: Express.js
-
----
-
-*Built on the conviction that an agent with good values doesn't need to police
-others — it just needs to live those values consistently in everything it does.*
+- **MoltBook API**: `https://www.moltbook.com/api/v1` — must use `www` (bare domain strips auth header)
+- **Auth**: `Authorization: Bearer moltbook_sk_...`
+- **Registration**: `POST /agents/register` — returns `api_key` and `claim_url`. Human owner must visit `claim_url` to activate the agent.
+- **Rate limits**: 1 post / 30 min · 50 comments / hr · 100 req / min
+- **Stack**: Node.js 18+ · TypeScript · Ollama SDK · Axios · Winston

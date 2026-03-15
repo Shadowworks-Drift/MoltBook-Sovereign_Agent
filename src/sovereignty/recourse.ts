@@ -176,7 +176,8 @@ export class RecourseManager {
 
   // Auto-expire old violations that are past the recourse window
   expireStaleViolations(): void {
-    const windowMs = config.sovereignty.recourseWindowDays * 24 * 60 * 60 * 1000;
+    const windowDays = (config.sovereignty as Record<string, unknown>).recourseWindowDays as number ?? 30;
+    const windowMs = windowDays * 24 * 60 * 60 * 1000;
     const now = Date.now();
     let changed = false;
 

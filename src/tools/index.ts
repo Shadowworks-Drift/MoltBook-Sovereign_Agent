@@ -1,3 +1,8 @@
+// ============================================================
+//  MoltBook Tools — Ollama tool-call definitions + executor
+//  Maps to the real MoltBook API via MoltBookClient
+// ============================================================
+
 import { Tool } from 'ollama';
 import { MoltBookClient } from '../moltbook/client';
 import { SovereigntyEvaluator } from '../sovereignty/evaluator';
@@ -8,7 +13,7 @@ export interface OllamaToolContext {
   moltbook: MoltBookClient;
   evaluator: SovereigntyEvaluator;
   recourse: RecourseManager;
-  agentId: string;
+  agentName: string;
 }
 
 // ── Tool Definitions (Ollama format) ──────────────────────────────────────────
@@ -17,12 +22,17 @@ export const OLLAMA_TOOLS: Tool[] = [
   {
     type: 'function',
     function: {
-      name: 'get_timeline',
-      description: 'Read recent posts from your MoltBook home timeline.',
+      name: 'get_feed',
+      description: 'Read your personalised home feed on MoltBook (posts from agents you follow + subscribed submolts).',
       parameters: {
         type: 'object',
         properties: {
-          limit: { type: 'number', description: 'How many posts to fetch (max 40, default 20)' },
+          sort: {
+            type: 'string',
+            enum: ['hot', 'new', 'top', 'rising'],
+            description: 'Sort order (default: hot)',
+          },
+          limit: { type: 'number', description: 'How many posts to fetch (max 50, default 25)' },
         },
       },
     },
@@ -30,12 +40,19 @@ export const OLLAMA_TOOLS: Tool[] = [
   {
     type: 'function',
     function: {
-      name: 'get_notifications',
-      description: 'Check your unread notifications — mentions, replies, DMs, follows.',
+      name: 'get_submolt_feed',
+      description: 'Read posts from a specific submolt community (e.g. "philosophy", "technology").',
       parameters: {
         type: 'object',
+        required: ['submolt'],
         properties: {
-          limit: { type: 'number', description: 'How many to fetch (default 15)' },
+          submolt: { type: 'string', description: 'The submolt name, without the m/ prefix' },
+          sort: {
+            type: 'string',
+            enum: ['hot', 'new', 'top', 'rising'],
+            description: 'Sort order (default: hot)',
+          },
+          limit: { type: 'number', description: 'How many posts to fetch (default 25)' },
         },
       },
     },
@@ -44,7 +61,7 @@ export const OLLAMA_TOOLS: Tool[] = [
     type: 'function',
     function: {
       name: 'get_post',
-      description: 'Read a specific post and its full content.',
+      description: 'Read a specific post and its metadata (karma, comment count, etc.).',
       parameters: {
         type: 'object',
         required: ['post_id'],
@@ -57,13 +74,18 @@ export const OLLAMA_TOOLS: Tool[] = [
   {
     type: 'function',
     function: {
-      name: 'get_thread',
-      description: 'Read the full conversation thread around a post (context + replies).',
+      name: 'get_comments',
+      description: 'Read the comments on a post.',
       parameters: {
         type: 'object',
         required: ['post_id'],
         properties: {
-          post_id: { type: 'string', description: 'The post ID to get context for' },
+          post_id: { type: 'string', description: 'The post ID to get comments for' },
+          sort: {
+            type: 'string',
+            enum: ['top', 'new', 'controversial'],
+            description: 'Sort order (default: top)',
+          },
         },
       },
     },
@@ -71,14 +93,25 @@ export const OLLAMA_TOOLS: Tool[] = [
   {
     type: 'function',
     function: {
-      name: 'get_user_profile',
-      description: "Look up someone's profile and recent posts.",
+      name: 'get_agent_profile',
+      description: "Look up another agent's profile — karma, post count, description.",
       parameters: {
         type: 'object',
-        required: ['user_id'],
+        required: ['name'],
         properties: {
-          user_id: { type: 'string', description: 'User ID or username' },
+          name: { type: 'string', description: "The agent's username" },
         },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'list_submolts',
+      description: 'List all available submolt communities on MoltBook.',
+      parameters: {
+        type: 'object',
+        properties: {},
       },
     },
   },
@@ -86,17 +119,12 @@ export const OLLAMA_TOOLS: Tool[] = [
     type: 'function',
     function: {
       name: 'search',
-      description: 'Search MoltBook for posts or people by keyword.',
+      description: 'Search MoltBook for posts, agents, or submolts by keyword.',
       parameters: {
         type: 'object',
         required: ['query'],
         properties: {
           query: { type: 'string', description: 'Search terms' },
-          type: {
-            type: 'string',
-            enum: ['posts', 'people'],
-            description: 'What to search for (default: posts)',
-          },
         },
       },
     },
@@ -104,21 +132,16 @@ export const OLLAMA_TOOLS: Tool[] = [
   {
     type: 'function',
     function: {
-      name: 'post',
-      description: 'Publish a post on MoltBook. Can be a standalone post or a reply.',
+      name: 'create_post',
+      description: 'Publish a new post to a submolt community. Use this to share thoughts, ask questions, or start discussions.',
       parameters: {
         type: 'object',
-        required: ['content'],
+        required: ['submolt', 'title'],
         properties: {
-          content: { type: 'string', description: 'What you want to say' },
-          reply_to_id: {
-            type: 'string',
-            description: 'Post ID to reply to (omit for a new standalone post)',
-          },
-          content_warning: {
-            type: 'string',
-            description: 'Optional content warning / subject line',
-          },
+          submolt: { type: 'string', description: 'The submolt to post in (e.g. "philosophy", "technology")' },
+          title: { type: 'string', description: 'The post title — clear and descriptive' },
+          content: { type: 'string', description: 'The post body text (optional, adds detail below the title)' },
+          url: { type: 'string', description: 'A URL to share (optional, for link posts)' },
         },
       },
     },
@@ -126,14 +149,15 @@ export const OLLAMA_TOOLS: Tool[] = [
   {
     type: 'function',
     function: {
-      name: 'send_dm',
-      description: 'Send a private direct message to a user.',
+      name: 'comment',
+      description: 'Comment on a post or reply to an existing comment.',
       parameters: {
         type: 'object',
-        required: ['username', 'content'],
+        required: ['post_id', 'content'],
         properties: {
-          username: { type: 'string', description: 'The username to message' },
-          content: { type: 'string', description: 'Your message' },
+          post_id: { type: 'string', description: 'The post to comment on' },
+          content: { type: 'string', description: 'Your comment text' },
+          parent_id: { type: 'string', description: 'Comment ID to reply to (omit to comment directly on the post)' },
         },
       },
     },
@@ -141,13 +165,13 @@ export const OLLAMA_TOOLS: Tool[] = [
   {
     type: 'function',
     function: {
-      name: 'like_post',
-      description: 'Like (favourite) a post.',
+      name: 'upvote_post',
+      description: 'Upvote a post you find valuable or interesting.',
       parameters: {
         type: 'object',
         required: ['post_id'],
         properties: {
-          post_id: { type: 'string', description: 'The post ID to like' },
+          post_id: { type: 'string', description: 'The post ID to upvote' },
         },
       },
     },
@@ -155,13 +179,13 @@ export const OLLAMA_TOOLS: Tool[] = [
   {
     type: 'function',
     function: {
-      name: 'boost_post',
-      description: 'Boost (repost/reblog) a post to share it with your followers.',
+      name: 'downvote_post',
+      description: 'Downvote a post. Use sparingly — only for content that genuinely detracts from the community.',
       parameters: {
         type: 'object',
         required: ['post_id'],
         properties: {
-          post_id: { type: 'string', description: 'The post ID to boost' },
+          post_id: { type: 'string', description: 'The post ID to downvote' },
         },
       },
     },
@@ -169,13 +193,13 @@ export const OLLAMA_TOOLS: Tool[] = [
   {
     type: 'function',
     function: {
-      name: 'follow_user',
-      description: 'Follow a user to see their posts in your feed.',
+      name: 'upvote_comment',
+      description: 'Upvote a comment.',
       parameters: {
         type: 'object',
-        required: ['user_id'],
+        required: ['comment_id'],
         properties: {
-          user_id: { type: 'string', description: 'The user ID to follow' },
+          comment_id: { type: 'string', description: 'The comment ID to upvote' },
         },
       },
     },
@@ -183,13 +207,41 @@ export const OLLAMA_TOOLS: Tool[] = [
   {
     type: 'function',
     function: {
-      name: 'unfollow_user',
-      description: 'Unfollow a user.',
+      name: 'follow_agent',
+      description: "Follow another agent so their posts appear in your feed.",
       parameters: {
         type: 'object',
-        required: ['user_id'],
+        required: ['name'],
         properties: {
-          user_id: { type: 'string', description: 'The user ID to unfollow' },
+          name: { type: 'string', description: "The agent's username to follow" },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'unfollow_agent',
+      description: 'Unfollow an agent.',
+      parameters: {
+        type: 'object',
+        required: ['name'],
+        properties: {
+          name: { type: 'string', description: "The agent's username to unfollow" },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'subscribe_submolt',
+      description: 'Subscribe to a submolt community to see its posts in your feed.',
+      parameters: {
+        type: 'object',
+        required: ['name'],
+        properties: {
+          name: { type: 'string', description: 'The submolt name to subscribe to' },
         },
       },
     },
@@ -200,24 +252,16 @@ export const OLLAMA_TOOLS: Tool[] = [
       name: 'check_sovereignty',
       description:
         'Self-check: evaluate whether something you are about to do respects the Sovereignty Principle. ' +
-        'Call this when you are unsure if a planned post or action might impede, impose, or impair someone.',
+        'Call this when you feel uncertain about whether an action could impede, impose upon, or impair another.',
       parameters: {
         type: 'object',
         required: ['action', 'description'],
         properties: {
-          action: { type: 'string', description: 'Brief label of the action (e.g. "reply", "post")' },
-          description: { type: 'string', description: 'What you are planning to do and why' },
+          action: { type: 'string', description: 'Brief label of the action (e.g. "comment", "post")' },
+          description: { type: 'string', description: 'What you plan to do and why' },
           target: { type: 'string', description: 'Who the action is directed at (optional)' },
         },
       },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'mark_notifications_read',
-      description: 'Mark all notifications as read.',
-      parameters: { type: 'object', properties: {} },
     },
   },
 ];
@@ -231,136 +275,202 @@ export async function executeOllamaTool(
 ): Promise<string> {
   try {
     switch (name) {
-      case 'get_timeline': {
-        const limit = Math.min(Number(args.limit ?? 20), 40);
-        const posts = await ctx.moltbook.getHomeTimeline(limit);
-        if (posts.length === 0) return 'Timeline is empty.';
+
+      case 'get_feed': {
+        const sort = (args.sort as 'hot' | 'new' | 'top' | 'rising') ?? 'hot';
+        const limit = Math.min(Number(args.limit ?? 25), 50);
+        const posts = await ctx.moltbook.getFeed(sort, limit);
+        if (posts.length === 0) return 'Feed is empty.';
         return posts
-          .map(p => `[${p.id}] @${p.authorUsername}: ${p.content.slice(0, 300)}`)
+          .map(p =>
+            `[${p.id}] m/${p.submolt} | "${p.title}" by ${p.agent_name}` +
+            `\n  karma:${p.karma} comments:${p.comment_count}` +
+            (p.content ? `\n  ${p.content.slice(0, 250)}` : '')
+          )
           .join('\n---\n');
       }
 
-      case 'get_notifications': {
-        const limit = Number(args.limit ?? 15);
-        const notifications = await ctx.moltbook.getNotifications(limit);
-        if (notifications.length === 0) return 'No notifications.';
-        return notifications
-          .map(n => `[${n.id}] ${n.type} from @${n.fromUsername ?? 'unknown'}: ${n.content.slice(0, 200)}`)
-          .join('\n');
+      case 'get_submolt_feed': {
+        const submolt = String(args.submolt);
+        const sort = (args.sort as 'hot' | 'new' | 'top' | 'rising') ?? 'hot';
+        const limit = Number(args.limit ?? 25);
+        const posts = await ctx.moltbook.getSubmoltFeed(submolt, sort, limit);
+        if (posts.length === 0) return `m/${submolt} has no posts yet.`;
+        return posts
+          .map(p =>
+            `[${p.id}] "${p.title}" by ${p.agent_name}` +
+            `\n  karma:${p.karma} comments:${p.comment_count}` +
+            (p.content ? `\n  ${p.content.slice(0, 250)}` : '')
+          )
+          .join('\n---\n');
       }
 
       case 'get_post': {
         const post = await ctx.moltbook.getPost(String(args.post_id));
-        return `@${post.authorUsername} [${post.id}]:\n${post.content}\n` +
-          `Likes: ${post.likeCount}  Replies: ${post.replyCount}  Posted: ${post.createdAt}`;
+        return (
+          `[${post.id}] m/${post.submolt}\n` +
+          `Title: ${post.title}\n` +
+          `By: ${post.agent_name} | karma:${post.karma} upvotes:${post.upvotes} comments:${post.comment_count}\n` +
+          (post.content ? `\n${post.content}` : '') +
+          (post.url ? `\nURL: ${post.url}` : '') +
+          `\nPosted: ${post.created_at}`
+        );
       }
 
-      case 'get_thread': {
-        const thread = await ctx.moltbook.getThread(String(args.post_id));
-        return thread
-          .map(p => `@${p.authorUsername}: ${p.content.slice(0, 300)}`)
-          .join('\n---\n');
+      case 'get_comments': {
+        const sort = (args.sort as 'top' | 'new' | 'controversial') ?? 'top';
+        const comments = await ctx.moltbook.getComments(String(args.post_id), sort);
+        if (comments.length === 0) return 'No comments yet.';
+
+        const formatComment = (c: typeof comments[0], depth = 0): string => {
+          const indent = '  '.repeat(depth);
+          const lines = [
+            `${indent}[${c.id}] ${c.agent_name} (karma:${c.karma}):`,
+            `${indent}  ${c.content.slice(0, 400)}`,
+          ];
+          if (c.replies?.length) {
+            for (const reply of c.replies.slice(0, 3)) {
+              lines.push(formatComment(reply, depth + 1));
+            }
+          }
+          return lines.join('\n');
+        };
+
+        return comments.slice(0, 20).map(c => formatComment(c)).join('\n---\n');
       }
 
-      case 'get_user_profile': {
-        const profile = await ctx.moltbook.getUserProfile(String(args.user_id));
-        const u = profile.user;
-        const lines = [
-          `@${u.username} — ${u.displayName}`,
-          u.bio ? `Bio: ${u.bio}` : '',
-          `Followers: ${profile.followerCount}  Following: ${profile.followingCount}`,
-          '',
-          'Recent posts:',
-          ...profile.recentPosts.slice(0, 5).map(p => `  [${p.id}] ${p.content.slice(0, 200)}`),
-        ];
-        return lines.filter(Boolean).join('\n');
+      case 'get_agent_profile': {
+        const profile = await ctx.moltbook.getAgentProfile(String(args.name));
+        return (
+          `${profile.name}` +
+          (profile.description ? `\nBio: ${profile.description}` : '') +
+          `\nKarma: ${profile.karma} | Posts: ${profile.post_count} | Comments: ${profile.comment_count}` +
+          `\nFollowers: ${profile.follower_count} | Following: ${profile.following_count}` +
+          `\nClaimed: ${profile.claimed} | Verified: ${profile.verified}` +
+          `\nMember since: ${profile.created_at}`
+        );
+      }
+
+      case 'list_submolts': {
+        const submolts = await ctx.moltbook.listSubmolts();
+        if (submolts.length === 0) return 'No submolts found.';
+        return submolts
+          .map(s => `m/${s.name} — ${s.display_name}: ${s.description} (${s.subscriber_count} subscribers)`)
+          .join('\n');
       }
 
       case 'search': {
-        const type = String(args.type ?? 'posts');
-        const query = String(args.query);
-        if (type === 'people') {
-          const users = await ctx.moltbook.searchUsers(query);
-          if (users.length === 0) return `No users found for "${query}"`;
-          return users.map(u => `@${u.username} — ${u.displayName}: ${u.bio ?? ''}`).join('\n');
-        } else {
-          const posts = await ctx.moltbook.searchPosts(query);
-          if (posts.length === 0) return `No posts found for "${query}"`;
-          return posts.map(p => `[${p.id}] @${p.authorUsername}: ${p.content.slice(0, 200)}`).join('\n');
+        const results = await ctx.moltbook.search(String(args.query));
+        const lines: string[] = [];
+
+        if (results.posts?.length) {
+          lines.push(`Posts (${results.posts.length}):`);
+          results.posts.slice(0, 10).forEach(p =>
+            lines.push(`  [${p.id}] m/${p.submolt} "${p.title}" by ${p.agent_name} (karma:${p.karma})`)
+          );
         }
+        if (results.agents?.length) {
+          lines.push(`Agents (${results.agents.length}):`);
+          results.agents.slice(0, 5).forEach(a =>
+            lines.push(`  ${a.name} — karma:${a.karma}${a.description ? ' | ' + a.description.slice(0, 80) : ''}`)
+          );
+        }
+        if (results.submolts?.length) {
+          lines.push(`Submolts (${results.submolts.length}):`);
+          results.submolts.slice(0, 5).forEach(s =>
+            lines.push(`  m/${s.name} — ${s.description.slice(0, 80)} (${s.subscriber_count} subscribers)`)
+          );
+        }
+
+        return lines.length ? lines.join('\n') : 'No results found.';
       }
 
-      case 'post': {
-        const content = String(args.content);
-        const replyToId = args.reply_to_id ? String(args.reply_to_id) : undefined;
+      case 'create_post': {
+        const title = String(args.title);
+        const submolt = String(args.submolt);
+        const content = args.content ? String(args.content) : undefined;
+        const url = args.url ? String(args.url) : undefined;
 
-        // Quick sovereignty self-check before posting
+        // Sovereignty self-check before posting
         const check = await ctx.evaluator.evaluate({
-          actorId: ctx.agentId,
-          actionType: replyToId ? 'reply' : 'post',
-          actionDescription: content,
-          targetId: replyToId,
+          actorId: ctx.agentName,
+          actionType: 'post',
+          actionDescription: `[m/${submolt}] ${title}${content ? ': ' + content : ''}`,
+          targetId: submolt,
         });
 
         if (ctx.evaluator.isConcerning(check)) {
           return (
-            `Sovereignty concern detected (${check.violationConfidence.toFixed(2)} confidence): ` +
-            `${check.reasoning}\nPost was not sent. Consider rephrasing.`
+            `Sovereignty concern (${check.violationConfidence.toFixed(2)} confidence): ` +
+            `${check.reasoning}\nPost was not published. Consider rephrasing.`
           );
         }
 
-        const published = await ctx.moltbook.createPost({
-          content,
-          replyToId,
-          contentWarning: args.content_warning ? String(args.content_warning) : undefined,
-        });
-        logger.info(`Posted [${published.id}]: ${content.slice(0, 80)}`);
-        return `Posted successfully [id:${published.id}]`;
+        const published = await ctx.moltbook.createPost({ submolt, title, content, url });
+        logger.info(`Posted to m/${submolt}: "${title.slice(0, 60)}"`);
+        return `Post published [id:${published.id}] to m/${submolt}: "${published.title}"`;
       }
 
-      case 'send_dm': {
+      case 'comment': {
         const content = String(args.content);
-        const username = String(args.username);
+        const postId = String(args.post_id);
+        const parentId = args.parent_id ? String(args.parent_id) : undefined;
 
+        // Sovereignty self-check before commenting
         const check = await ctx.evaluator.evaluate({
-          actorId: ctx.agentId,
-          actionType: 'direct_message',
+          actorId: ctx.agentName,
+          actionType: parentId ? 'reply' : 'comment',
           actionDescription: content,
-          targetId: username,
+          targetId: postId,
         });
 
         if (ctx.evaluator.isConcerning(check)) {
-          return `Sovereignty concern: ${check.reasoning}\nMessage not sent.`;
+          return (
+            `Sovereignty concern (${check.violationConfidence.toFixed(2)} confidence): ` +
+            `${check.reasoning}\nComment was not posted. Consider rephrasing.`
+          );
         }
 
-        const msg = await ctx.moltbook.sendMessage(username, content);
-        logger.info(`DM sent to ${username}`);
-        return `DM sent to @${username} [id:${msg.id}]`;
+        const comment = await ctx.moltbook.createComment({ post_id: postId, content, parent_id: parentId });
+        logger.info(`Commented on post ${postId}${parentId ? ' (reply)' : ''}: ${content.slice(0, 60)}`);
+        return `Comment posted [id:${comment.id}]`;
       }
 
-      case 'like_post': {
-        await ctx.moltbook.likePost(String(args.post_id));
-        return `Liked post ${args.post_id}`;
+      case 'upvote_post': {
+        await ctx.moltbook.upvotePost(String(args.post_id));
+        return `Upvoted post ${args.post_id}`;
       }
 
-      case 'boost_post': {
-        await ctx.moltbook.boostPost(String(args.post_id));
-        return `Boosted post ${args.post_id}`;
+      case 'downvote_post': {
+        await ctx.moltbook.downvotePost(String(args.post_id));
+        return `Downvoted post ${args.post_id}`;
       }
 
-      case 'follow_user': {
-        await ctx.moltbook.followUser(String(args.user_id));
-        return `Now following ${args.user_id}`;
+      case 'upvote_comment': {
+        await ctx.moltbook.upvoteComment(String(args.comment_id));
+        return `Upvoted comment ${args.comment_id}`;
       }
 
-      case 'unfollow_user': {
-        await ctx.moltbook.unfollowUser(String(args.user_id));
-        return `Unfollowed ${args.user_id}`;
+      case 'follow_agent': {
+        await ctx.moltbook.followAgent(String(args.name));
+        logger.info(`Following agent: ${args.name}`);
+        return `Now following ${args.name}`;
+      }
+
+      case 'unfollow_agent': {
+        await ctx.moltbook.unfollowAgent(String(args.name));
+        return `Unfollowed ${args.name}`;
+      }
+
+      case 'subscribe_submolt': {
+        await ctx.moltbook.subscribeSubmolt(String(args.name));
+        logger.info(`Subscribed to m/${args.name}`);
+        return `Subscribed to m/${args.name}`;
       }
 
       case 'check_sovereignty': {
         const check = await ctx.evaluator.evaluate({
-          actorId: ctx.agentId,
+          actorId: ctx.agentName,
           actionType: String(args.action),
           actionDescription: String(args.description),
           targetId: args.target ? String(args.target) : undefined,
@@ -375,11 +485,6 @@ export async function executeOllamaTool(
           null,
           2
         );
-      }
-
-      case 'mark_notifications_read': {
-        await ctx.moltbook.markAllNotificationsRead();
-        return 'Notifications marked as read.';
       }
 
       default:

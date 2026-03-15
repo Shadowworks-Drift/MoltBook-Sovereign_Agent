@@ -1,227 +1,197 @@
-import axios, { AxiosInstance, AxiosError } from 'axios';
+import axios, { AxiosInstance } from 'axios';
 import { config } from '../utils/config';
 import { logger } from '../utils/logger';
 import {
-  MoltBookMessage,
-  MoltBookNotification,
+  CreateCommentRequest,
+  CreatePostRequest,
+  FeedSort,
+  MoltBookAgent,
+  MoltBookComment,
   MoltBookPost,
-  MoltBookProfile,
-  MoltBookUser,
-  MoltBookFeedEvent,
-  PostDraft,
+  MoltBookSubmolt,
+  RegisterAgentRequest,
+  RegisterAgentResponse,
+  SearchResults,
 } from './types';
+
+const BASE_URL = 'https://www.moltbook.com/api/v1'; // MUST use www — bare domain redirects and strips auth header
 
 export class MoltBookClient {
   private http: AxiosInstance;
-  private agentUserId: string | null = null;
+  private agentName: string | null = null;
 
-  constructor() {
+  constructor(apiKey?: string) {
+    const key = apiKey ?? config.moltbook.apiKey;
+
     this.http = axios.create({
-      baseURL: config.moltbook.baseUrl,
+      baseURL: BASE_URL,
       headers: {
         'Content-Type': 'application/json',
-        ...(config.moltbook.apiKey
-          ? { Authorization: `Bearer ${config.moltbook.apiKey}` }
-          : {}),
+        ...(key ? { Authorization: `Bearer ${key}` } : {}),
       },
-      timeout: 15000,
+      timeout: 20000,
     });
 
     this.http.interceptors.response.use(
       res => res,
-      (err: AxiosError) => {
-        logger.debug(`MoltBook API error`, {
-          status: err.response?.status,
-          url: err.config?.url,
-          data: err.response?.data,
-        });
+      err => {
+        const status = err.response?.status;
+        const url = err.config?.url;
+        if (status === 429) {
+          const reset = err.response?.headers?.['x-ratelimit-reset'];
+          logger.warn(`Rate limited on ${url}. Resets: ${reset ?? 'unknown'}`);
+        } else if (status && status !== 404) {
+          logger.debug(`MoltBook API ${status} on ${url}`);
+        }
         return Promise.reject(err);
       }
     );
   }
 
+  // ── Self-registration (no auth required) ─────────────────────────────────
+
+  static async register(req: RegisterAgentRequest): Promise<RegisterAgentResponse> {
+    const res = await axios.post<RegisterAgentResponse>(
+      `${BASE_URL}/agents/register`,
+      req,
+      { headers: { 'Content-Type': 'application/json' }, timeout: 15000 }
+    );
+    return res.data;
+  }
+
   // ── Identity ──────────────────────────────────────────────────────────────
 
-  async getAgentUserId(): Promise<string> {
-    if (this.agentUserId) return this.agentUserId;
-    try {
-      const res = await this.http.get<MoltBookUser>('/api/v1/accounts/verify_credentials');
-      this.agentUserId = res.data.id;
-      return this.agentUserId;
-    } catch {
-      this.agentUserId = config.moltbook.agentUsername;
-      logger.warn(`Could not verify credentials — using username as ID`);
-      return this.agentUserId;
-    }
+  async getMe(): Promise<MoltBookAgent> {
+    const res = await this.http.get<{ agent: MoltBookAgent }>('/agents/me');
+    logger.info(`[getMe] raw response: ${JSON.stringify(res.data)}`);
+    const agent = res.data.agent ?? (res.data as unknown as MoltBookAgent);
+    this.agentName = agent.name;
+    return agent;
+  }
+
+  async updateMe(updates: Partial<{ description: string }>): Promise<MoltBookAgent> {
+    const res = await this.http.patch<{ agent: MoltBookAgent }>('/agents/me', updates);
+    return res.data.agent ?? (res.data as unknown as MoltBookAgent);
+  }
+
+  async getAgentProfile(name: string): Promise<MoltBookAgent> {
+    const res = await this.http.get<{ agent: MoltBookAgent }>('/agents/profile', { params: { name } });
+    return res.data.agent ?? (res.data as unknown as MoltBookAgent);
   }
 
   async ping(): Promise<boolean> {
     try {
-      await this.http.get('/api/v1/instance');
+      await this.getMe();
       return true;
     } catch {
       return false;
     }
   }
 
-  // ── Reading ───────────────────────────────────────────────────────────────
+  // ── Feed ──────────────────────────────────────────────────────────────────
 
-  async getHomeTimeline(limit = 20, sinceId?: string): Promise<MoltBookPost[]> {
-    const params: Record<string, unknown> = { limit };
-    if (sinceId) params.since_id = sinceId;
-    const res = await this.http.get<MoltBookPost[]>('/api/v1/timelines/home', { params });
-    return res.data;
+  async getFeed(sort: FeedSort = 'hot', limit = 25): Promise<MoltBookPost[]> {
+    const res = await this.http.get<{ posts: MoltBookPost[] }>('/feed', { params: { sort, limit } });
+    return res.data.posts ?? [];
   }
 
-  async getPublicTimeline(limit = 20, sinceId?: string): Promise<MoltBookPost[]> {
-    const params: Record<string, unknown> = { limit };
-    if (sinceId) params.since_id = sinceId;
-    const res = await this.http.get<MoltBookPost[]>('/api/v1/timelines/public', { params });
-    return res.data;
+  async getPublicFeed(sort: FeedSort = 'hot', limit = 25): Promise<MoltBookPost[]> {
+    const res = await this.http.get<MoltBookPost[] | { posts: MoltBookPost[] }>('/posts', {
+      params: { sort, limit },
+    });
+    return Array.isArray(res.data) ? res.data : (res.data as { posts: MoltBookPost[] }).posts ?? [];
   }
 
-  async getNotifications(limit = 20, sinceId?: string): Promise<MoltBookNotification[]> {
-    const params: Record<string, unknown> = { limit };
-    if (sinceId) params.since_id = sinceId;
-    const res = await this.http.get<MoltBookNotification[]>('/api/v1/notifications', { params });
-    return res.data;
+  async getSubmoltFeed(submolt: string, sort: FeedSort = 'hot', limit = 25): Promise<MoltBookPost[]> {
+    const res = await this.http.get<{ posts: MoltBookPost[] }>('/posts', {
+      params: { sort, limit, submolt },
+    });
+    return res.data.posts ?? [];
   }
+
+  // ── Posts ─────────────────────────────────────────────────────────────────
 
   async getPost(postId: string): Promise<MoltBookPost> {
-    const res = await this.http.get<MoltBookPost>(`/api/v1/statuses/${postId}`);
+    const res = await this.http.get<MoltBookPost>(`/posts/${postId}`);
     return res.data;
   }
 
-  async getThread(postId: string): Promise<MoltBookPost[]> {
-    const res = await this.http.get<{ ancestors: MoltBookPost[]; descendants: MoltBookPost[] }>(
-      `/api/v1/statuses/${postId}/context`
+  async createPost(req: CreatePostRequest): Promise<MoltBookPost> {
+    const res = await this.http.post<MoltBookPost>('/posts', req);
+    logger.info(`Posted to m/${req.submolt}: "${req.title.slice(0, 60)}"`);
+    return res.data;
+  }
+
+  async deletePost(postId: string): Promise<void> {
+    await this.http.delete(`/posts/${postId}`);
+  }
+
+  async upvotePost(postId: string): Promise<void> {
+    await this.http.post(`/posts/${postId}/upvote`);
+  }
+
+  async downvotePost(postId: string): Promise<void> {
+    await this.http.post(`/posts/${postId}/downvote`);
+  }
+
+  // ── Comments ──────────────────────────────────────────────────────────────
+
+  async getComments(postId: string, sort: 'top' | 'new' | 'controversial' = 'top'): Promise<MoltBookComment[]> {
+    const res = await this.http.get<{ comments: MoltBookComment[] }>(
+      `/posts/${postId}/comments`,
+      { params: { sort } }
     );
-    const post = await this.getPost(postId);
-    return [...res.data.ancestors, post, ...res.data.descendants];
+    return res.data.comments ?? [];
   }
 
-  async getUserProfile(userIdOrUsername: string): Promise<MoltBookProfile> {
-    // Try by ID first, fall back to username lookup
-    let userId = userIdOrUsername;
-
-    if (userIdOrUsername.startsWith('@') || isNaN(Number(userIdOrUsername))) {
-      // It's a username — look it up
-      try {
-        const search = await this.http.get<{ accounts: MoltBookUser[] }>('/api/v2/search', {
-          params: { q: userIdOrUsername.replace('@', ''), type: 'accounts', limit: 1 },
-        });
-        if (search.data.accounts.length > 0) {
-          userId = search.data.accounts[0].id;
-        }
-      } catch { /* fall through */ }
-    }
-
-    const [userRes, postsRes, relRes] = await Promise.allSettled([
-      this.http.get<MoltBookUser>(`/api/v1/accounts/${userId}`),
-      this.http.get<MoltBookPost[]>(`/api/v1/accounts/${userId}/statuses`, {
-        params: { limit: 10, exclude_replies: false },
-      }),
-      this.http.get<{ followers_count: number; following_count: number }>(
-        `/api/v1/accounts/${userId}`
-      ),
-    ]);
-
-    const user = userRes.status === 'fulfilled' ? userRes.value.data : { id: userId, username: userIdOrUsername, displayName: userIdOrUsername, createdAt: '' };
-    const posts = postsRes.status === 'fulfilled' ? postsRes.value.data : [];
-    const rel = relRes.status === 'fulfilled' ? relRes.value.data : null;
-
-    return {
-      user: user as MoltBookUser,
-      recentPosts: posts,
-      followerCount: (rel as { followers_count?: number } | null)?.followers_count ?? 0,
-      followingCount: (rel as { following_count?: number } | null)?.following_count ?? 0,
-    };
-  }
-
-  async searchPosts(query: string, limit = 10): Promise<MoltBookPost[]> {
-    const res = await this.http.get<{ statuses: MoltBookPost[] }>('/api/v2/search', {
-      params: { q: query, type: 'statuses', limit },
-    });
-    return res.data.statuses ?? [];
-  }
-
-  async searchUsers(query: string, limit = 10): Promise<MoltBookUser[]> {
-    const res = await this.http.get<{ accounts: MoltBookUser[] }>('/api/v2/search', {
-      params: { q: query, type: 'accounts', limit },
-    });
-    return res.data.accounts ?? [];
-  }
-
-  async getMessages(): Promise<MoltBookMessage[]> {
-    const res = await this.http.get<MoltBookMessage[]>('/api/v1/conversations');
+  async createComment(req: CreateCommentRequest): Promise<MoltBookComment> {
+    const res = await this.http.post<MoltBookComment>('/comments', req);
+    logger.info(`Commented on post ${req.post_id}${req.parent_id ? ' (reply)' : ''}`);
     return res.data;
   }
 
-  // ── Writing ───────────────────────────────────────────────────────────────
+  async upvoteComment(commentId: string): Promise<void> {
+    await this.http.post(`/comments/${commentId}/upvote`);
+  }
 
-  async createPost(draft: PostDraft): Promise<MoltBookPost> {
-    const body: Record<string, unknown> = { status: draft.content };
-    if (draft.replyToId) body.in_reply_to_id = draft.replyToId;
-    if (draft.contentWarning) body.spoiler_text = draft.contentWarning;
-    if (draft.visibility) body.visibility = draft.visibility;
+  // ── Submolts ──────────────────────────────────────────────────────────────
 
-    const res = await this.http.post<MoltBookPost>('/api/v1/statuses', body);
+  async listSubmolts(): Promise<MoltBookSubmolt[]> {
+    const res = await this.http.get<{ submolts: MoltBookSubmolt[] }>('/submolts');
+    return res.data.submolts ?? [];
+  }
+
+  async getSubmolt(name: string): Promise<MoltBookSubmolt> {
+    const res = await this.http.get<MoltBookSubmolt>(`/submolts/${name}`);
     return res.data;
   }
 
-  async sendMessage(recipientUsername: string, content: string): Promise<MoltBookMessage> {
-    // Most Mastodon-compatible APIs send DMs as posts with visibility=direct
-    const body = {
-      status: `@${recipientUsername.replace('@', '')} ${content}`,
-      visibility: 'direct',
-    };
-    const res = await this.http.post<MoltBookMessage>('/api/v1/statuses', body);
+  async subscribeSubmolt(name: string): Promise<void> {
+    await this.http.post(`/submolts/${name}/subscribe`);
+  }
+
+  async unsubscribeSubmolt(name: string): Promise<void> {
+    await this.http.delete(`/submolts/${name}/subscribe`);
+  }
+
+  // ── Social ────────────────────────────────────────────────────────────────
+
+  async followAgent(name: string): Promise<void> {
+    await this.http.post(`/agents/${name}/follow`);
+  }
+
+  async unfollowAgent(name: string): Promise<void> {
+    await this.http.delete(`/agents/${name}/follow`);
+  }
+
+  // ── Search ────────────────────────────────────────────────────────────────
+
+  async search(query: string, limit = 25): Promise<SearchResults> {
+    const res = await this.http.get<SearchResults>('/search', { params: { q: query, limit } });
     return res.data;
   }
 
-  async likePost(postId: string): Promise<void> {
-    await this.http.post(`/api/v1/statuses/${postId}/favourite`);
-  }
-
-  async boostPost(postId: string): Promise<void> {
-    await this.http.post(`/api/v1/statuses/${postId}/reblog`);
-  }
-
-  async followUser(userId: string): Promise<void> {
-    await this.http.post(`/api/v1/accounts/${userId}/follow`);
-  }
-
-  async unfollowUser(userId: string): Promise<void> {
-    await this.http.post(`/api/v1/accounts/${userId}/unfollow`);
-  }
-
-  async markAllNotificationsRead(): Promise<void> {
-    await this.http.post('/api/v1/notifications/clear');
-  }
-
-  // ── Polling ───────────────────────────────────────────────────────────────
-
-  async pollFeedEvents(sinceId?: string): Promise<MoltBookFeedEvent[]> {
-    const events: MoltBookFeedEvent[] = [];
-    const now = new Date().toISOString();
-
-    const [notifResult, timelineResult] = await Promise.allSettled([
-      this.getNotifications(15, sinceId),
-      this.getHomeTimeline(15, sinceId),
-    ]);
-
-    if (notifResult.status === 'fulfilled') {
-      for (const n of notifResult.value) {
-        if (!n.read) events.push({ type: 'notification', payload: n, receivedAt: now });
-      }
-    }
-
-    if (timelineResult.status === 'fulfilled') {
-      for (const post of timelineResult.value) {
-        events.push({ type: 'post', payload: post, receivedAt: now });
-      }
-    }
-
-    return events;
+  getAgentName(): string {
+    return this.agentName ?? config.moltbook.agentName;
   }
 }
