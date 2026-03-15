@@ -92,7 +92,9 @@ export class MoltBookClient {
 
   async getFeed(sort: FeedSort = 'hot', limit = 25): Promise<MoltBookPost[]> {
     const res = await this.http.get<{ posts: MoltBookPost[] }>('/feed', { params: { sort, limit } });
-    return res.data.posts ?? [];
+    const posts = res.data.posts ?? [];
+    if (posts.length > 0) logger.info(`[getFeed] first post keys: ${JSON.stringify(Object.keys(posts[0]))}`);
+    return posts;
   }
 
   async getPublicFeed(sort: FeedSort = 'hot', limit = 25): Promise<MoltBookPost[]> {
