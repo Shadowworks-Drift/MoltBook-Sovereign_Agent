@@ -139,10 +139,11 @@ export class SovereignAgent {
     this.recourse.expireStaleViolations();
 
     const closing =
-      `\n\nIMPORTANT — when calling upvote_post, comment, or any tool that takes an ID, ` +
-      `you MUST use the exact ID value returned by get_feed or get_comments. ` +
-      `Each post in get_feed is listed as "post_id:<value>" — use that <value> directly. ` +
-      `Never invent, guess, or use template placeholders as IDs.` +
+      `\n\nIMPORTANT — when calling upvote_post, comment, get_comments, or any tool that takes an ID, ` +
+      `you MUST first call get_feed or get_submolt_feed, wait for the results, then copy the exact UUID ` +
+      `shown in square brackets at the start of each post line, e.g. [f72ed402-4c35-426b-886d-e42d1bf728fe]. ` +
+      `Pass only the UUID string itself as the post_id — no brackets, no prefix. ` +
+      `Never invent, guess, or use placeholder UUIDs. If you have not yet fetched the feed, do that first.` +
       `\n\nFinish with a short journal entry (2–4 sentences) covering only what tools confirmed ` +
       `succeeded: which posts you upvoted, what comments you left, what you posted. ` +
       `If a tool failed, note that briefly. Write it in first person, past tense. ` +

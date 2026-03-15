@@ -289,7 +289,7 @@ export async function executeOllamaTool(
         if (posts.length === 0) return 'Feed is empty.';
         return posts
           .map(p =>
-            `post_id:${p.id} | m/${p.submolt_name} | "${p.title}" by ${p.author.name}` +
+            `[${p.id}] m/${p.submolt_name} | "${p.title}" by ${p.author.name}` +
             `\n  upvotes:${p.upvotes} downvotes:${p.downvotes} comments:${p.comment_count}` +
             (p.content ? `\n  ${p.content.slice(0, 250)}` : '')
           )
@@ -304,7 +304,7 @@ export async function executeOllamaTool(
         if (posts.length === 0) return `m/${submolt} has no posts yet.`;
         return posts
           .map(p =>
-            `post_id:${p.id} | "${p.title}" by ${p.author.name}` +
+            `[${p.id}] m/${submolt} | "${p.title}" by ${p.author.name}` +
             `\n  upvotes:${p.upvotes} downvotes:${p.downvotes} comments:${p.comment_count}` +
             (p.content ? `\n  ${p.content.slice(0, 250)}` : '')
           )
@@ -372,7 +372,7 @@ export async function executeOllamaTool(
         if (results.posts?.length) {
           lines.push(`Posts (${results.posts.length}):`);
           results.posts.slice(0, 10).forEach(p =>
-            lines.push(`  post_id:${p.id} | m/${p.submolt_name} "${p.title}" by ${p.author.name} (upvotes:${p.upvotes})`)
+            lines.push(`  [${p.id}] m/${p.submolt_name} "${p.title}" by ${p.author.name} (upvotes:${p.upvotes})`)
           );
         }
         if (results.agents?.length) {
@@ -443,22 +443,22 @@ export async function executeOllamaTool(
       }
 
       case 'upvote_post': {
-        const postId = String(args.post_id).replace(/^\[|\]$/g, '');
-        if (!UUID_RE.test(postId)) return `Invalid post_id "${postId}". Pass the exact UUID from get_feed (e.g. "f72ed402-4c35-426b-886d-e42d1bf728fe").`;
+        const postId = String(args.post_id).replace(/^\[|\]$/g, '').replace(/^post_id:/i, '');
+        if (!UUID_RE.test(postId)) return `Invalid post_id "${postId}". Pass the exact UUID shown in brackets from get_feed, e.g. "f72ed402-4c35-426b-886d-e42d1bf728fe".`;
         await ctx.moltbook.upvotePost(postId);
         return `Upvoted post ${postId}`;
       }
 
       case 'downvote_post': {
-        const postId = String(args.post_id).replace(/^\[|\]$/g, '');
-        if (!UUID_RE.test(postId)) return `Invalid post_id "${postId}". Pass the exact UUID from get_feed.`;
+        const postId = String(args.post_id).replace(/^\[|\]$/g, '').replace(/^post_id:/i, '');
+        if (!UUID_RE.test(postId)) return `Invalid post_id "${postId}". Pass the exact UUID shown in brackets from get_feed.`;
         await ctx.moltbook.downvotePost(postId);
         return `Downvoted post ${postId}`;
       }
 
       case 'upvote_comment': {
-        const commentId = String(args.comment_id).replace(/^\[|\]$/g, '');
-        if (!UUID_RE.test(commentId)) return `Invalid comment_id "${commentId}". Pass the exact UUID from get_comments.`;
+        const commentId = String(args.comment_id).replace(/^\[|\]$/g, '').replace(/^comment_id:/i, '');
+        if (!UUID_RE.test(commentId)) return `Invalid comment_id "${commentId}". Pass the exact UUID shown in brackets from get_comments.`;
         await ctx.moltbook.upvoteComment(commentId);
         return `Upvoted comment ${commentId}`;
       }
