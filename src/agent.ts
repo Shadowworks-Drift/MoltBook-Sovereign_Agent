@@ -45,6 +45,9 @@ export class SovereignAgent {
   private agentName: string;
   private running = false;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  private commentPollTimer: ReturnType<typeof setInterval> | null = null;
+  // Tracks last known comment count per post ID to detect new replies
+  private lastCommentCounts = new Map<string, number>();
 
   constructor() {
     this.ollama = new Ollama({ host: config.ollama.host });
@@ -102,6 +105,16 @@ export class SovereignAgent {
     };
 
     scheduleNext();
+
+    // Comment poller — lightweight check for new replies between heartbeats
+    const pollMs = config.agent.commentPollIntervalMs;
+    logger.info(`Comment poller: every ${pollMs / 60_000} minutes`);
+    this.commentPollTimer = setInterval(async () => {
+      await this.pollForNewComments().catch(err =>
+        logger.error('Comment poll error', { err: String(err) })
+      );
+    }, pollMs) as unknown as ReturnType<typeof setInterval>;
+
     logger.info(`Agent running. Next heartbeat in ~${config.agent.heartbeatIntervalMs / 60_000} minutes.`);
   }
 
@@ -110,6 +123,10 @@ export class SovereignAgent {
     if (this.heartbeatTimer) {
       clearTimeout(this.heartbeatTimer as unknown as ReturnType<typeof setTimeout>);
       this.heartbeatTimer = null;
+    }
+    if (this.commentPollTimer) {
+      clearInterval(this.commentPollTimer as unknown as ReturnType<typeof setInterval>);
+      this.commentPollTimer = null;
     }
     logger.info('=== Agent stopped ===');
   }
@@ -152,6 +169,43 @@ export class SovereignAgent {
     }
   }
 
+  // ── Comment Poller ────────────────────────────────────────────────────────
+
+  private async pollForNewComments(): Promise<void> {
+    if (!this.running) return;
+
+    let posts: Awaited<ReturnType<typeof this.moltbook.getMyPosts>>;
+    try {
+      posts = await this.moltbook.getMyPosts('new', 20);
+    } catch {
+      return; // silent — network blip, try next interval
+    }
+
+    const postsWithNewReplies = posts.filter(p => {
+      const prev = this.lastCommentCounts.get(p.id) ?? p.comment_count;
+      return p.comment_count > prev;
+    });
+
+    // Update tracked counts for all posts
+    posts.forEach(p => this.lastCommentCounts.set(p.id, p.comment_count));
+
+    if (postsWithNewReplies.length === 0) return;
+
+    const postList = postsWithNewReplies
+      .map(p => `[${p.id}] "${p.title}" (${p.comment_count} comments)`)
+      .join('\n');
+
+    logger.info(`Comment poller: new replies on ${postsWithNewReplies.length} post(s) — running reply turn`);
+
+    const prompt =
+      `New comments have appeared on your posts since you last checked:\n${postList}\n\n` +
+      `For each post listed, call get_comments to read what was said, then reply where the comment ` +
+      `warrants a response. Be genuine — skip comments that don't need a reply. ` +
+      `After replying, write 1-2 sentences summarising what you responded to.`;
+
+    await this.runTurn(prompt, false);
+  }
+
   // ── Heartbeat ─────────────────────────────────────────────────────────────
 
   private async runHeartbeat(kind: 'initial' | 'scheduled'): Promise<void> {
@@ -172,13 +226,16 @@ export class SovereignAgent {
       `Output the journal directly — no heading, no sign-off, nothing before or after.`;
 
     const sessionGuide =
-      `\n\nWork through these steps in order. You MUST complete all four before writing your journal:\n` +
-      `1. Call get_my_posts — check your own recent posts for comments. ` +
-        `For any post with comment_count > 0, call get_comments and reply to anyone who said something worth responding to.\n` +
-      `2. Call get_feed to see what the community has been posting. Use get_post to read the body of anything interesting.\n` +
-      `3. Call upvote_post on at least one post. Call comment on at least one post.\n` +
-      `4. Call create_post to publish something new — a reflection, observation, or reaction to what you read.\n` +
-      `Do not write your journal until you have actually called upvote_post, comment, and create_post.\n`;
+      `\n\nWork through these steps in order. Complete all five before writing your journal:\n` +
+      `1. Call recall to re-anchor in what you already know — agents, notes, your recent posts.\n` +
+      `2. Call get_my_posts — for any post with comment_count > 0, call get_comments and reply where it warrants one.\n` +
+      `3. Call get_feed. Use get_post to read the body of anything that catches your attention before engaging with it.\n` +
+      `4. Upvote at least one post. Leave at least one comment — read the full post first with get_post.\n` +
+      `   For any agent whose writing genuinely interests you: call follow_agent to follow them, ` +
+        `then call remember with your impression and their agent_name so you remember them next session.\n` +
+      `5. Call create_post — write something substantial in your own voice (3-4+ sentences). ` +
+        `Make a specific claim, develop a thought, or ask a real question. Not a summary of the Sovereignty Principle.\n` +
+      `Do not write your journal until you have called upvote_post, comment, and create_post.\n`;
 
     const prompt = kind === 'initial'
       ? `You've just come online after being away. Act like someone opening the app fresh.` + sessionGuide + closing

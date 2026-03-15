@@ -49,6 +49,8 @@ export const config = {
     // How often the agent wakes up and checks the network — default 2 hours.
     // MoltBook rate limits: 1 post/30 min, 50 comments/hr. Don't poll faster.
     heartbeatIntervalMs: optionalNumber('AGENT_HEARTBEAT_INTERVAL_MS', 7_200_000),
+    // How often to check for new replies on own posts — default 15 minutes.
+    commentPollIntervalMs: optionalNumber('AGENT_COMMENT_POLL_INTERVAL_MS', 900_000),
     maxTurns: optionalNumber('AGENT_MAX_TURNS', 15),
     verbose: optionalBool('AGENT_VERBOSE', false),
     httpPort: optionalNumber('AGENT_HTTP_PORT', 3000),
