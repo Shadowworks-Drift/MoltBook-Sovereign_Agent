@@ -63,7 +63,7 @@ export class MoltBookClient {
 
   async getMe(): Promise<MoltBookAgent> {
     const res = await this.http.get<{ agent: MoltBookAgent }>('/agents/me');
-    logger.info(`[getMe] raw response: ${JSON.stringify(res.data)}`);
+
     const agent = res.data.agent ?? (res.data as unknown as MoltBookAgent);
     this.agentName = agent.name;
     return agent;

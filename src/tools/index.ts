@@ -277,14 +277,18 @@ export async function executeOllamaTool(
     switch (name) {
 
       case 'get_feed': {
-        const sort = (args.sort as 'hot' | 'new' | 'top' | 'rising') ?? 'hot';
+        const sortRaw = args.sort;
+        const SORT_VALUES = ['hot', 'new', 'top', 'rising'] as const;
+        const sort = (typeof sortRaw === 'string' && SORT_VALUES.includes(sortRaw as typeof SORT_VALUES[number]))
+          ? sortRaw as typeof SORT_VALUES[number]
+          : 'hot';
         const limit = Math.min(Number(args.limit ?? 25), 50);
         const posts = await ctx.moltbook.getFeed(sort, limit);
         if (posts.length === 0) return 'Feed is empty.';
         return posts
           .map(p =>
-            `[${p.id}] m/${p.submolt} | "${p.title}" by ${p.agent_name}` +
-            `\n  karma:${p.karma} comments:${p.comment_count}` +
+            `[${p.id}] m/${p.submolt_name} | "${p.title}" by ${p.author}` +
+            `\n  upvotes:${p.upvotes} downvotes:${p.downvotes} comments:${p.comment_count}` +
             (p.content ? `\n  ${p.content.slice(0, 250)}` : '')
           )
           .join('\n---\n');
@@ -298,8 +302,8 @@ export async function executeOllamaTool(
         if (posts.length === 0) return `m/${submolt} has no posts yet.`;
         return posts
           .map(p =>
-            `[${p.id}] "${p.title}" by ${p.agent_name}` +
-            `\n  karma:${p.karma} comments:${p.comment_count}` +
+            `[${p.id}] "${p.title}" by ${p.author}` +
+            `\n  upvotes:${p.upvotes} downvotes:${p.downvotes} comments:${p.comment_count}` +
             (p.content ? `\n  ${p.content.slice(0, 250)}` : '')
           )
           .join('\n---\n');
@@ -308,9 +312,9 @@ export async function executeOllamaTool(
       case 'get_post': {
         const post = await ctx.moltbook.getPost(String(args.post_id));
         return (
-          `[${post.id}] m/${post.submolt}\n` +
+          `[${post.id}] m/${post.submolt_name}\n` +
           `Title: ${post.title}\n` +
-          `By: ${post.agent_name} | karma:${post.karma} upvotes:${post.upvotes} comments:${post.comment_count}\n` +
+          `By: ${post.author} | upvotes:${post.upvotes} downvotes:${post.downvotes} comments:${post.comment_count}\n` +
           (post.content ? `\n${post.content}` : '') +
           (post.url ? `\nURL: ${post.url}` : '') +
           `\nPosted: ${post.created_at}`
@@ -366,7 +370,7 @@ export async function executeOllamaTool(
         if (results.posts?.length) {
           lines.push(`Posts (${results.posts.length}):`);
           results.posts.slice(0, 10).forEach(p =>
-            lines.push(`  [${p.id}] m/${p.submolt} "${p.title}" by ${p.agent_name} (karma:${p.karma})`)
+            lines.push(`  [${p.id}] m/${p.submolt_name} "${p.title}" by ${p.author} (upvotes:${p.upvotes})`)
           );
         }
         if (results.agents?.length) {
@@ -437,18 +441,21 @@ export async function executeOllamaTool(
       }
 
       case 'upvote_post': {
-        await ctx.moltbook.upvotePost(String(args.post_id));
-        return `Upvoted post ${args.post_id}`;
+        const postId = String(args.post_id).replace(/^\[|\]$/g, '');
+        await ctx.moltbook.upvotePost(postId);
+        return `Upvoted post ${postId}`;
       }
 
       case 'downvote_post': {
-        await ctx.moltbook.downvotePost(String(args.post_id));
-        return `Downvoted post ${args.post_id}`;
+        const postId = String(args.post_id).replace(/^\[|\]$/g, '');
+        await ctx.moltbook.downvotePost(postId);
+        return `Downvoted post ${postId}`;
       }
 
       case 'upvote_comment': {
-        await ctx.moltbook.upvoteComment(String(args.comment_id));
-        return `Upvoted comment ${args.comment_id}`;
+        const commentId = String(args.comment_id).replace(/^\[|\]$/g, '');
+        await ctx.moltbook.upvoteComment(commentId);
+        return `Upvoted comment ${commentId}`;
       }
 
       case 'follow_agent': {
