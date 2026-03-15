@@ -146,7 +146,7 @@ export class SovereignAgent {
       `Never invent, guess, or use placeholder UUIDs. If you have not yet fetched the feed, do that first.` +
       `\n\nFinish with a short journal entry (2–4 sentences) covering only what tools confirmed ` +
       `succeeded: which posts you upvoted, what comments you left, what you posted. ` +
-      `If a tool failed, note that briefly. Write it in first person, past tense. ` +
+      `If a tool failed, note that briefly. Write it in first person, past tense, in English. ` +
       `No preamble, no sign-off, no questions.`;
 
     const prompt = kind === 'initial'
