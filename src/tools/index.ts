@@ -7,12 +7,14 @@ import { Tool } from 'ollama';
 import { MoltBookClient } from '../moltbook/client';
 import { SovereigntyEvaluator } from '../sovereignty/evaluator';
 import { RecourseManager } from '../sovereignty/recourse';
+import { AgentMemory } from '../memory/store';
 import { logger } from '../utils/logger';
 
 export interface OllamaToolContext {
   moltbook: MoltBookClient;
   evaluator: SovereigntyEvaluator;
   recourse: RecourseManager;
+  memory: AgentMemory;
   agentName: string;
 }
 
@@ -264,6 +266,36 @@ export const OLLAMA_TOOLS: Tool[] = [
   {
     type: 'function',
     function: {
+      name: 'remember',
+      description:
+        'Save something to your long-term memory. Use this to record impressions of agents you meet, ' +
+        'opinions you are forming, topics you want to return to, or anything you want to recall in future sessions.',
+      parameters: {
+        type: 'object',
+        required: ['content'],
+        properties: {
+          content: { type: 'string', description: 'What to remember — a note, an opinion, an impression of someone.' },
+          agent_name: { type: 'string', description: 'If this note is about a specific agent, provide their username here so it is indexed under them.' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'recall',
+      description: 'Query your long-term memory. Returns your saved notes, known agents, and recent posts.',
+      parameters: {
+        type: 'object',
+        properties: {
+          filter: { type: 'string', description: 'Optional keyword to filter results (e.g. an agent name or topic).' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'check_sovereignty',
       description:
         'Self-check: evaluate whether something you are about to do respects the Sovereignty Principle. ' +
@@ -440,6 +472,7 @@ export async function executeOllamaTool(
 
         const published = await ctx.moltbook.createPost({ submolt, title, content, url });
         logger.info(`Posted to m/${submolt}: "${title.slice(0, 60)}"`);
+        ctx.memory.trackPost(published.id, published.title, submolt);
         return `Post published [id:${published.id}] to m/${submolt}: "${published.title}"`;
       }
 
@@ -505,6 +538,52 @@ export async function executeOllamaTool(
         await ctx.moltbook.subscribeSubmolt(String(args.name));
         logger.info(`Subscribed to m/${args.name}`);
         return `Subscribed to m/${args.name}`;
+      }
+
+      case 'remember': {
+        const content = String(args.content);
+        const agentName = args.agent_name ? String(args.agent_name) : undefined;
+        ctx.memory.addNote(content);
+        if (agentName) {
+          ctx.memory.updateAgent(agentName, content);
+        }
+        return `Remembered: "${content.slice(0, 80)}"`;
+      }
+
+      case 'recall': {
+        const filter = args.filter ? String(args.filter).toLowerCase() : '';
+        const lines: string[] = [];
+
+        const posts = ctx.memory.getOwnPosts();
+        const filteredPosts = filter
+          ? posts.filter(p => p.title.toLowerCase().includes(filter) || p.submolt.toLowerCase().includes(filter))
+          : posts;
+        if (filteredPosts.length > 0) {
+          lines.push('YOUR POSTS:');
+          filteredPosts.slice(-10).forEach(p =>
+            lines.push(`  [${p.id}] m/${p.submolt} — "${p.title}" (${p.postedAt.slice(0, 10)})`)
+          );
+        }
+
+        const agents = Object.values(ctx.memory.getKnownAgents());
+        const filteredAgents = filter
+          ? agents.filter(a => a.name.toLowerCase().includes(filter) || a.impression.toLowerCase().includes(filter))
+          : agents;
+        if (filteredAgents.length > 0) {
+          lines.push('AGENTS YOU KNOW:');
+          filteredAgents.forEach(a => lines.push(`  ${a.name}: ${a.impression}`));
+        }
+
+        const notes = ctx.memory.getNotes();
+        const filteredNotes = filter
+          ? notes.filter(n => n.content.toLowerCase().includes(filter))
+          : notes;
+        if (filteredNotes.length > 0) {
+          lines.push('YOUR NOTES:');
+          filteredNotes.slice(-15).forEach(n => lines.push(`  [${n.savedAt.slice(0, 10)}] ${n.content}`));
+        }
+
+        return lines.length > 0 ? lines.join('\n') : 'Nothing stored yet.';
       }
 
       case 'check_sovereignty': {
