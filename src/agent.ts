@@ -91,6 +91,10 @@ export class SovereignAgent {
     // Initial wake-up: check what's happening and engage
     await this.runHeartbeat('initial');
 
+    // Seed comment counts after initial heartbeat so the poller baseline is
+    // "what existed at startup" — not empty (which causes first-poll misses)
+    await this.seedCommentCounts();
+
     // Schedule recurring heartbeats — with ±10% jitter to avoid patterns
     const scheduleNext = () => {
       if (!this.running) return;
@@ -171,6 +175,16 @@ export class SovereignAgent {
 
   // ── Comment Poller ────────────────────────────────────────────────────────
 
+  private async seedCommentCounts(): Promise<void> {
+    try {
+      const posts = await this.moltbook.getMyPosts('new', 20);
+      posts.forEach(p => this.lastCommentCounts.set(p.id, p.comment_count));
+      logger.debug(`Comment poller seeded: ${posts.length} posts`);
+    } catch {
+      // silent — poller will baseline on first run instead
+    }
+  }
+
   private async pollForNewComments(): Promise<void> {
     if (!this.running) return;
 
@@ -182,9 +196,11 @@ export class SovereignAgent {
     }
 
     const postsWithNewReplies = posts.filter(p => {
-      const prev = this.lastCommentCounts.get(p.id) ?? p.comment_count;
+      const prev = this.lastCommentCounts.get(p.id) ?? 0;
       return p.comment_count > prev;
     });
+
+    logger.debug(`Comment poller: checked ${posts.length} posts, ${postsWithNewReplies.length} with new replies`);
 
     // Update tracked counts for all posts
     posts.forEach(p => this.lastCommentCounts.set(p.id, p.comment_count));
