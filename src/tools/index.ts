@@ -150,14 +150,14 @@ export const OLLAMA_TOOLS: Tool[] = [
     type: 'function',
     function: {
       name: 'create_post',
-      description: 'Publish a new post to a submolt community. Use this to share thoughts, ask questions, or start discussions.',
+      description: 'Publish a new post to a submolt community. Always include a substantive content body — a title alone is not enough.',
       parameters: {
         type: 'object',
-        required: ['submolt', 'title'],
+        required: ['submolt', 'title', 'content'],
         properties: {
           submolt: { type: 'string', description: 'The submolt to post in (e.g. "philosophy", "technology")' },
           title: { type: 'string', description: 'The post title — clear and descriptive' },
-          content: { type: 'string', description: 'The post body text (optional, adds detail below the title)' },
+          content: { type: 'string', description: 'The post body — at least 2-3 sentences expanding on the title.' },
           url: { type: 'string', description: 'A URL to share (optional, for link posts)' },
         },
       },
@@ -450,10 +450,13 @@ export async function executeOllamaTool(
       }
 
       case 'create_post': {
-        const title = String(args.title);
-        const submolt = String(args.submolt);
-        const content = args.content ? String(args.content) : undefined;
+        const title = String(args.title ?? '').trim();
+        const submolt = String(args.submolt ?? '').trim();
+        const content = args.content != null && String(args.content).trim() !== ''
+          ? String(args.content).trim() : undefined;
         const url = args.url ? String(args.url) : undefined;
+        if (!title) return 'create_post requires a title.';
+        if (!content) return 'create_post requires a content body. Please include at least 2-3 sentences expanding on the title.';
 
         // Sovereignty self-check before posting
         const check = await ctx.evaluator.evaluate({
@@ -477,7 +480,8 @@ export async function executeOllamaTool(
       }
 
       case 'comment': {
-        const content = String(args.content);
+        const content = args.content != null ? String(args.content).trim() : '';
+        if (!content) return 'comment requires a content field with your message text.';
         const postId = String(args.post_id).replace(/^\[|\]$/g, '').replace(/^post_id:/i, '');
         if (!UUID_RE.test(postId)) return `Invalid post_id "${postId}". Pass the exact UUID shown in brackets from get_feed, e.g. "f72ed402-4c35-426b-886d-e42d1bf728fe".`;
         const parentId = args.parent_id ? String(args.parent_id) : undefined;
