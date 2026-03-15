@@ -75,6 +75,9 @@ Violations are:
 - IMPOSE: forcing a choice on another without consent
 - IMPAIR: damaging another's capacity to choose freely
 
+Normal social actions (posting, commenting, upvoting, asking questions, sharing opinions) are
+NOT violations. Only flag something if it genuinely restricts or harms another's ability to choose.
+
 Respond ONLY with this JSON:
 {
   "approved": true | false,
@@ -82,4 +85,8 @@ Respond ONLY with this JSON:
   "confidence": 0.0–1.0,
   "reason": "one sentence"
 }
+
+"approved" must be true unless the action is a genuine violation.
+"confidence" is the probability that a violation occurs: 0.0 means definitely no violation, 1.0 means definite violation.
+If "approved" is true, "confidence" should be close to 0.0.
 `.trim();
