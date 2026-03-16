@@ -517,10 +517,30 @@ export async function executeOllamaTool(
         const newTitleLower = title.toLowerCase();
         const significantWords = newTitleLower.split(/\s+/).filter(w => w.length > 4);
 
-        // Stage 1: fixation check — if any significant word appears in 2+ prior post titles,
-        // the agent is fixating on that topic. Strip punctuation so "zero-pulse:" == "zero-pulse".
+        // Stage 1: fixation check — two tiers.
+        // Tier A: if any significant word appeared in ANY of the last 3 posts → immediate block.
+        // Tier B: if any significant word appears in 2+ of the last 15 posts → medium-term block.
+        // Strip punctuation so "zero-pulse:" == "zero-pulse".
         const cleanWords = significantWords.map(w => w.replace(/[^a-z0-9-]/g, '')).filter(w => w.length > 4);
         const recentPosts = ctx.memory.getOwnPosts(15);
+
+        // Tier A: last 3 posts — block on single repeat
+        const lastThreePosts = recentPosts.slice(-3);
+        const lastThreeWords = new Set(
+          lastThreePosts.flatMap(p =>
+            (p.title ?? '').toLowerCase().split(/\s+/).map(w => w.replace(/[^a-z0-9-]/g, '')).filter(w => w.length > 4)
+          )
+        );
+        const immediateRepeat = cleanWords.find(w => lastThreeWords.has(w));
+        if (immediateRepeat) {
+          return (
+            `Duplicate warning: "${immediateRepeat}" appeared in one of your 3 most recent posts. ` +
+            `You just wrote about this — pick a completely different topic. ` +
+            `Check your developing thoughts for ideas, or skip create_post this session.`
+          );
+        }
+
+        // Tier B: last 15 posts — block if appears 2+ times
         const wordFrequency = new Map<string, number>();
         for (const post of recentPosts) {
           const prevTitle = (post.title ?? '').toLowerCase();
@@ -529,7 +549,6 @@ export async function executeOllamaTool(
           );
           for (const w of prevWords) wordFrequency.set(w, (wordFrequency.get(w) ?? 0) + 1);
         }
-        // Debug: log what the dedup check is working with
         logger.info(`Dedup check for "${title.slice(0, 60)}": ${recentPosts.length} own posts tracked, cleanWords=[${cleanWords.join(',')}], topFreq=${JSON.stringify(Object.fromEntries([...wordFrequency.entries()].filter(([w]) => cleanWords.includes(w))))}`);
 
         const fixatedWord = cleanWords.find(w => (wordFrequency.get(w) ?? 0) >= 2);
