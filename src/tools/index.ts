@@ -370,7 +370,7 @@ export async function executeOllamaTool(
       }
 
       case 'get_post': {
-        const post = await ctx.moltbook.getPost(String(args.post_id));
+        const post = await ctx.moltbook.getPost(String(args.post_id).replace(/^\[|\]$/g, ''));
         return (
           `[${post.id}] m/${post.submolt_name}\n` +
           `Title: ${post.title}\n` +
@@ -383,7 +383,7 @@ export async function executeOllamaTool(
 
       case 'get_comments': {
         const sort = (args.sort as 'top' | 'new' | 'controversial') ?? 'top';
-        const comments = await ctx.moltbook.getComments(String(args.post_id), sort);
+        const comments = await ctx.moltbook.getComments(String(args.post_id).replace(/^\[|\]$/g, ''), sort);
         if (comments.length === 0) return 'No comments yet.';
 
         const formatComment = (c: typeof comments[0], depth = 0): string => {
