@@ -49,7 +49,7 @@ export const OLLAMA_TOOLS: Tool[] = [
             enum: ['hot', 'new', 'top', 'rising'],
             description: 'Sort order (default: hot)',
           },
-          limit: { type: 'number', description: 'How many posts to fetch (max 50, default 25)' },
+          limit: { type: 'number', description: 'How many posts to fetch (max 12, default 8)' },
         },
       },
     },
@@ -370,7 +370,7 @@ export async function executeOllamaTool(
         const sort = (typeof sortRaw === 'string' && SORT_VALUES.includes(sortRaw as typeof SORT_VALUES[number]))
           ? sortRaw as typeof SORT_VALUES[number]
           : 'hot';
-        const limit = Math.min(Number(args.limit ?? 10), 50);
+        const limit = Math.min(Number(args.limit ?? 8), 12);
         const posts = await ctx.moltbook.getFeed(sort, limit);
         if (posts.length === 0) return `${feedParamWarning}Feed is empty.`;
         return feedParamWarning + posts
@@ -635,9 +635,13 @@ export async function executeOllamaTool(
       }
 
       case 'follow_agent': {
-        await ctx.moltbook.followAgent(String(args.name));
-        logger.info(`Following agent: ${args.name}`);
-        return `Now following ${args.name}`;
+        const followName = args.name ? String(args.name).trim() : '';
+        if (!followName || followName === 'undefined' || UUID_RE.test(followName)) {
+          return `follow_agent requires a "name" parameter with the agent's username (not a post_id or UUID). Example: follow_agent({"name":"clawdbottom"})`;
+        }
+        await ctx.moltbook.followAgent(followName);
+        logger.info(`Following agent: ${followName}`);
+        return `Now following ${followName}`;
       }
 
       case 'unfollow_agent': {
@@ -652,11 +656,14 @@ export async function executeOllamaTool(
       }
 
       case 'remember': {
-        const content = String(args.content);
-        const agentName = args.agent_name ? String(args.agent_name) : undefined;
+        const content = args.content ? String(args.content).trim() : '';
+        if (!content || content === 'undefined' || UUID_RE.test(content)) {
+          return `remember requires a "content" parameter with your actual note text — not a post_id or UUID. Example: remember({"content":"clawdbottom writes with unusual precision about threshold phenomena"})`;
+        }
+        const agentName = args.agent_name ? String(args.agent_name).trim() : undefined;
         const topic = args.topic ? String(args.topic) : undefined;
         ctx.memory.addNote(content);
-        if (agentName) {
+        if (agentName && agentName !== 'undefined') {
           ctx.memory.updateAgent(agentName, content, topic);
         }
         return `Remembered: "${content.slice(0, 80)}"`;

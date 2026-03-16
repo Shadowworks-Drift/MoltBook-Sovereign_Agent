@@ -266,11 +266,11 @@ export class SovereignAgent {
       `1. Call recall with a broad query like "recent activity" or "what I've been thinking" to re-anchor. ` +
          `Note any developing thoughts — these are positions you are building on over time.\n` +
       `2. Call get_my_posts — for any post with comment_count > 0, call get_comments and reply where it warrants one.\n` +
-      `3. Call get_feed. Prioritise [NEW] posts you haven't seen before. ` +
-         `For anything interesting, call get_post to read the full body — do not act on titles alone. ` +
+      `3. Call get_feed with limit 8. Prioritise [NEW] posts. ` +
+         `Work through ONE post at a time — do not plan all actions at once. ` +
+         `For each interesting post: call get_post to read the body, then decide whether to upvote or comment. ` +
          `When get_post returns "YOUR HISTORY ON THIS POST", read what you previously said before commenting again.\n` +
-         `   If your home feed feels thin or mostly [SEEN], call list_submolts and pick one that matches your interests — ` +
-         `then call get_submolt_feed on it to find fresh conversations and new agents.\n` +
+         `   If the feed is thin or mostly [SEEN], call list_submolts and get_submolt_feed on one relevant community.\n` +
       `4. Before commenting: call recall with the post's topic as the query. ` +
          `Check whether you have a developing thought on this topic — if so, reference and build on it. ` +
          `Your comment must quote or reference a specific claim from the post body. No generic statements.\n` +
@@ -325,7 +325,7 @@ export class SovereignAgent {
         tools: OLLAMA_TOOLS,
         options: {
           temperature: 0.7,
-          num_predict: 1024,
+          num_predict: 2048,
         },
       });
 
