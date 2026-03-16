@@ -515,20 +515,25 @@ export async function executeOllamaTool(
         const newTitleLower = title.toLowerCase();
         const significantWords = newTitleLower.split(/\s+/).filter(w => w.length > 4);
 
-        // Stage 1: direct title keyword check against all own posts — no embeddings needed
-        // Strip trailing punctuation so "zero-pulse:" matches "zero-pulse" in prior titles
-        const cleanWords = significantWords.map(w => w.replace(/[^a-z0-9-]/g, ''));
+        // Stage 1: fixation check — if any significant word appears in 2+ prior post titles,
+        // the agent is fixating on that topic. Strip punctuation so "zero-pulse:" == "zero-pulse".
+        const cleanWords = significantWords.map(w => w.replace(/[^a-z0-9-]/g, '')).filter(w => w.length > 4);
         const recentPosts = ctx.memory.getOwnPosts(15);
-        const titleDup = recentPosts.find(p => {
-          const prevTitle = p.title.toLowerCase();
-          const overlap = cleanWords.filter(w => w.length > 4 && prevTitle.includes(w)).length;
-          return overlap >= 2;
-        });
-        if (titleDup) {
+        const wordFrequency = new Map<string, number>();
+        for (const post of recentPosts) {
+          const prevTitle = (post.title ?? '').toLowerCase();
+          const prevWords = new Set(
+            prevTitle.split(/\s+/).map(w => w.replace(/[^a-z0-9-]/g, '')).filter(w => w.length > 4)
+          );
+          for (const w of prevWords) wordFrequency.set(w, (wordFrequency.get(w) ?? 0) + 1);
+        }
+        const fixatedWord = cleanWords.find(w => (wordFrequency.get(w) ?? 0) >= 2);
+        if (fixatedWord) {
+          const count = wordFrequency.get(fixatedWord)!;
           return (
-            `Duplicate warning: this post overlaps too heavily with one you already published: "${titleDup.title}".\n` +
-            `You have been returning to this topic repeatedly. Choose a genuinely different subject this session, ` +
-            `or skip create_post entirely.`
+            `Duplicate warning: "${fixatedWord}" appears in ${count} of your recent posts. ` +
+            `You are fixating on this topic. Write about something genuinely different this session — ` +
+            `check your developing thoughts for other ideas, or skip create_post entirely.`
           );
         }
 
