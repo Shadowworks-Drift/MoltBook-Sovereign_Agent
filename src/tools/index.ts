@@ -659,15 +659,13 @@ export async function executeOllamaTool(
         const filter = args.filter ? String(args.filter).toLowerCase() : '';
         const lines: string[] = [];
 
-        // Semantic search when a query is provided
-        if (query) {
-          const hits = await ctx.memory.embeddings.search(query, 8);
-          if (hits.length > 0) {
-            lines.push(`RELEVANT MEMORIES (semantic search: "${query.slice(0, 60)}"):`);
-            for (const hit of hits) {
-              const typeLabel = hit.metadata.type ?? 'memory';
-              lines.push(`  [${typeLabel}] ${hit.content.slice(0, 200)} (${hit.createdAt.slice(0, 10)})`);
-            }
+        // Semantic search when a query is provided — hoisted so we can use hits below
+        const hits = query ? await ctx.memory.embeddings.search(query, 8) : [];
+        if (hits.length > 0) {
+          lines.push(`RELEVANT MEMORIES (semantic search: "${query.slice(0, 60)}"):`);
+          for (const hit of hits) {
+            const typeLabel = hit.metadata.type ?? 'memory';
+            lines.push(`  [${typeLabel}] ${hit.content.slice(0, 200)} (${hit.createdAt.slice(0, 10)})`);
           }
         }
 
@@ -687,11 +685,39 @@ export async function executeOllamaTool(
         const filteredThoughts = filter
           ? thoughts.filter(t => t.topic.toLowerCase().includes(filter) || t.position.toLowerCase().includes(filter))
           : thoughts;
-        if (filteredThoughts.length > 0) {
+
+        // When semantic query was used, also expand neighbors of matched thoughts
+        const semanticThoughtIds = hits
+          .filter(h => h.metadata.type === 'thought')
+          .map(h => h.metadata.thoughtId)
+          .filter((id): id is string => !!id);
+
+        // Collect neighbor thoughts to surface alongside direct matches
+        const neighborThoughtIds = new Set<string>();
+        for (const id of semanticThoughtIds) {
+          const neighbors = ctx.memory.getThoughtNeighbors(id, 3);
+          neighbors.forEach(n => {
+            if (!semanticThoughtIds.includes(n.thought.id)) neighborThoughtIds.add(n.thought.id);
+          });
+        }
+
+        if (filteredThoughts.length > 0 || neighborThoughtIds.size > 0) {
           lines.push('DEVELOPING THOUGHTS:');
-          filteredThoughts.forEach(t =>
-            lines.push(`  [${t.topic}] ${t.position} (updated ${t.updatedAt.slice(0, 10)})`)
-          );
+          filteredThoughts.forEach(t => {
+            const neighbors = ctx.memory.getThoughtNeighbors(t.id, 3);
+            const neighborNote = neighbors.length > 0
+              ? `\n      ↔ connected: ${neighbors.map(n => `[${n.thought.topic}] ${n.thought.position.slice(0, 80)}`).join(' | ')}`
+              : '';
+            lines.push(`  [${t.topic}] ${t.position} (updated ${t.updatedAt.slice(0, 10)})${neighborNote}`);
+          });
+          // Surface neighbor thoughts not already in the filtered list
+          if (neighborThoughtIds.size > 0) {
+            lines.push('  (connected via concept graph):');
+            for (const nid of neighborThoughtIds) {
+              const nt = thoughts.find(t => t.id === nid);
+              if (nt) lines.push(`    [${nt.topic}] ${nt.position}`);
+            }
+          }
         }
 
         const agents = Object.values(ctx.memory.getKnownAgents());
@@ -734,8 +760,12 @@ export async function executeOllamaTool(
         const topic = String(args.topic ?? '').trim();
         const position = String(args.position ?? '').trim();
         if (!topic || !position) return 'develop_thought requires both topic and position.';
-        const thought = ctx.memory.upsertThought(topic, position);
-        return `Thought recorded: [${thought.topic}] ${thought.position}`;
+        const thought = await ctx.memory.upsertThought(topic, position);
+        const neighbors = ctx.memory.getThoughtNeighbors(thought.id, 4);
+        const connectionNote = neighbors.length > 0
+          ? `\nConnected to: ${neighbors.map(n => `[${n.thought.topic}] (${(n.similarity * 100).toFixed(0)}% similar)`).join(', ')}`
+          : '\nNo connections yet — more thoughts needed to build the graph.';
+        return `Thought recorded: [${thought.topic}] ${thought.position}${connectionNote}`;
       }
 
       case 'check_sovereignty': {

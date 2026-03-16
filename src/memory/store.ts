@@ -68,6 +68,14 @@ export interface DevelopingThought {
   updatedAt: string;
 }
 
+// A relationship between two developing thoughts discovered via embedding similarity
+export interface ThoughtEdge {
+  fromId: string;  // DevelopingThought.id
+  toId: string;    // DevelopingThought.id
+  similarity: number;
+  createdAt: string;
+}
+
 interface MemoryStore {
   entries: Record<string, MemoryEntry>;
   lastPollId?: string;
@@ -76,10 +84,10 @@ interface MemoryStore {
   knownAgents: Record<string, KnownAgent>;
   ownPosts: OwnPost[];
   notes: Array<{ content: string; savedAt: string }>;
-  // New structures
-  threadMemory: Record<string, ThreadMemory>;  // postId -> thread
-  seenPostIds: Record<string, string>;          // postId -> seenAt ISO
+  threadMemory: Record<string, ThreadMemory>;
+  seenPostIds: Record<string, string>;
   developingThoughts: DevelopingThought[];
+  conceptGraph: { edges: ThoughtEdge[] };
 }
 
 function loadMemory(): MemoryStore {
@@ -99,6 +107,7 @@ function loadMemory(): MemoryStore {
         threadMemory: raw.threadMemory ?? {},
         seenPostIds: raw.seenPostIds ?? {},
         developingThoughts: raw.developingThoughts ?? [],
+        conceptGraph: raw.conceptGraph ?? { edges: [] },
       };
     }
   } catch (err) {
@@ -114,6 +123,7 @@ function loadMemory(): MemoryStore {
     threadMemory: {},
     seenPostIds: {},
     developingThoughts: [],
+    conceptGraph: { edges: [] },
   };
 }
 
@@ -338,33 +348,88 @@ export class AgentMemory {
 
   // ── Developing thoughts ──────────────────────────────────────────────────
 
-  upsertThought(topic: string, position: string): DevelopingThought {
+  // Edge similarity threshold — only connect genuinely related ideas
+  private static readonly EDGE_THRESHOLD = 0.55;
+
+  async upsertThought(topic: string, position: string): Promise<DevelopingThought> {
     const now = new Date().toISOString();
-    // Match by topic (case-insensitive)
     const existing = this.store.developingThoughts.find(
       t => t.topic.toLowerCase() === topic.toLowerCase()
     );
+
+    let thought: DevelopingThought;
     if (existing) {
       existing.position = position;
       existing.updatedAt = now;
-      saveMemory(this.store);
-      this.embeddings.add(`thought:${existing.id}`, `${topic}: ${position}`, { type: 'thought' }).catch(() => {});
-      return existing;
+      thought = existing;
+    } else {
+      thought = { id: `thought-${Date.now()}`, topic, position, updatedAt: now };
+      this.store.developingThoughts.push(thought);
     }
-    const thought: DevelopingThought = {
-      id: `thought-${Date.now()}`,
-      topic,
-      position,
-      updatedAt: now,
-    };
-    this.store.developingThoughts.push(thought);
     saveMemory(this.store);
-    this.embeddings.add(`thought:${thought.id}`, `${topic}: ${position}`, { type: 'thought' }).catch(() => {});
+
+    // Embed and auto-wire edges to related existing thoughts
+    const embeddingId = `thought:${thought.id}`;
+    await this.embeddings.add(embeddingId, `${topic}: ${position}`, { type: 'thought', thoughtId: thought.id });
+    await this._autoCreateEdges(thought);
+
     return thought;
+  }
+
+  private async _autoCreateEdges(thought: DevelopingThought): Promise<void> {
+    const scored = await this.embeddings.searchScored(`${thought.topic}: ${thought.position}`, 8, 'thought');
+    const now = new Date().toISOString();
+    let changed = false;
+
+    for (const { entry, score } of scored) {
+      if (score < AgentMemory.EDGE_THRESHOLD) continue;
+      const otherId = entry.metadata.thoughtId;
+      if (!otherId || otherId === thought.id) continue;
+
+      // Avoid duplicate edges (either direction)
+      const alreadyExists = this.store.conceptGraph.edges.some(
+        e => (e.fromId === thought.id && e.toId === otherId) ||
+             (e.fromId === otherId && e.toId === thought.id)
+      );
+      if (alreadyExists) {
+        // Update similarity if improved
+        const edge = this.store.conceptGraph.edges.find(
+          e => (e.fromId === thought.id && e.toId === otherId) ||
+               (e.fromId === otherId && e.toId === thought.id)
+        )!;
+        if (score > edge.similarity) { edge.similarity = score; changed = true; }
+        continue;
+      }
+
+      this.store.conceptGraph.edges.push({ fromId: thought.id, toId: otherId, similarity: score, createdAt: now });
+      changed = true;
+    }
+
+    if (changed) saveMemory(this.store);
   }
 
   getDevelopingThoughts(): DevelopingThought[] {
     return this.store.developingThoughts;
+  }
+
+  // Return a thought's direct neighbors (1-hop), ordered by edge strength, capped
+  getThoughtNeighbors(thoughtId: string, limit = 4): Array<{ thought: DevelopingThought; similarity: number }> {
+    const edges = this.store.conceptGraph.edges
+      .filter(e => e.fromId === thoughtId || e.toId === thoughtId)
+      .sort((a, b) => b.similarity - a.similarity)
+      .slice(0, limit);
+
+    const result: Array<{ thought: DevelopingThought; similarity: number }> = [];
+    for (const edge of edges) {
+      const neighborId = edge.fromId === thoughtId ? edge.toId : edge.fromId;
+      const neighbor = this.store.developingThoughts.find(t => t.id === neighborId);
+      if (neighbor) result.push({ thought: neighbor, similarity: edge.similarity });
+    }
+    return result;
+  }
+
+  getConceptGraph(): { nodes: DevelopingThought[]; edges: ThoughtEdge[] } {
+    return { nodes: this.store.developingThoughts, edges: this.store.conceptGraph.edges };
   }
 
   // ── Own posts ────────────────────────────────────────────────────────────
@@ -403,7 +468,11 @@ export class AgentMemory {
     if (thoughts.length > 0) {
       lines.push('YOUR DEVELOPING THOUGHTS:');
       for (const t of thoughts) {
-        lines.push(`  [${t.topic}] ${t.position} (updated ${t.updatedAt.slice(0, 10)})`);
+        const neighbors = this.getThoughtNeighbors(t.id, 3);
+        const neighborNote = neighbors.length > 0
+          ? ` ↔ connected: ${neighbors.map(n => n.thought.topic).join(', ')}`
+          : '';
+        lines.push(`  [${t.topic}] ${t.position} (updated ${t.updatedAt.slice(0, 10)})${neighborNote}`);
       }
     }
 

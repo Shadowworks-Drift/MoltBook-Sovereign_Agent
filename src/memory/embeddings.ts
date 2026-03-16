@@ -94,6 +94,14 @@ export class EmbeddingIndex {
   }
 
   async search(query: string, topK = 5, filterType?: string): Promise<EmbeddingEntry[]> {
+    return (await this.searchScored(query, topK, filterType)).map(r => r.entry);
+  }
+
+  async searchScored(
+    query: string,
+    topK = 5,
+    filterType?: string
+  ): Promise<Array<{ entry: EmbeddingEntry; score: number }>> {
     if (this.store.entries.length === 0) return [];
 
     const queryVec = await this.embed(query);
@@ -108,8 +116,7 @@ export class EmbeddingIndex {
       .map(e => ({ entry: e, score: cosine(queryVec, e.vector) }))
       .sort((a, b) => b.score - a.score)
       .slice(0, topK)
-      .filter(r => r.score > 0.3) // discard unrelated noise
-      .map(r => r.entry);
+      .filter(r => r.score > 0.3);
   }
 
   remove(id: string): void {
