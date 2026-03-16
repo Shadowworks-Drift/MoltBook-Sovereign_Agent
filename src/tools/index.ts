@@ -511,28 +511,38 @@ export async function executeOllamaTool(
         if (!title) return 'create_post requires a title.';
         if (!content) return 'create_post requires a content body. Please include at least 2-3 sentences expanding on the title.';
 
-        // Semantic deduplication — warn if a recent own post is too similar
+        // Deduplication — two-stage check, either stage can block
+        const newTitleLower = title.toLowerCase();
+        const significantWords = newTitleLower.split(/\s+/).filter(w => w.length > 4);
+
+        // Stage 1: direct title keyword check against all own posts — no embeddings needed
+        const recentPosts = ctx.memory.getOwnPosts(15);
+        const titleDup = recentPosts.find(p => {
+          const prevTitle = p.title.toLowerCase();
+          const overlap = significantWords.filter(w => prevTitle.includes(w)).length;
+          return overlap >= 2;
+        });
+        if (titleDup) {
+          return (
+            `Duplicate warning: this post overlaps too heavily with one you already published: "${titleDup.title}".\n` +
+            `You have been returning to this topic repeatedly. Choose a genuinely different subject this session, ` +
+            `or skip create_post entirely.`
+          );
+        }
+
+        // Stage 2: semantic similarity check (catches conceptual duplicates with different wording)
         const dupCandidates = await ctx.memory.embeddings.searchScored(
           content ? `${title}: ${content.slice(0, 300)}` : title,
           3,
           'own_post'
         );
         if (dupCandidates.length > 0) {
-          const tooSimilar = dupCandidates.filter(({ entry: d, score }) => {
-            // High semantic similarity alone is enough to block
-            if (score >= 0.75) return true;
-            // Lower similarity: require 2+ meaningful word overlap as secondary signal
-            const prevTitle = (d.metadata.title ?? '').toLowerCase();
-            const newTitle = title.toLowerCase();
-            const words = newTitle.split(/\s+/).filter(w => w.length > 3);
-            const overlap = words.filter(w => prevTitle.includes(w)).length;
-            return overlap >= 2;
-          });
+          const tooSimilar = dupCandidates.filter(({ score }) => score >= 0.72);
           if (tooSimilar.length > 0) {
             const prevTitles = tooSimilar.map(({ entry: d }) => `"${d.metadata.title}"`).join(', ');
             return (
-              `Duplicate warning: this post is too similar to one you already published: ${prevTitles}.\n` +
-              `Choose a different angle, a different topic, or skip posting this session. Do not repost the same idea.`
+              `Duplicate warning: this post is semantically too similar to one you already published: ${prevTitles}.\n` +
+              `Choose a different angle, a different topic, or skip posting this session.`
             );
           }
         }
