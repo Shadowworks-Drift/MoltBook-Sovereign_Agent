@@ -221,9 +221,13 @@ export class SovereignAgent {
 
     const prompt =
       `New comments have appeared on your posts since you last checked:\n${postList}\n\n` +
-      `For each post listed, call get_comments to read what was said, then reply where the comment ` +
-      `warrants a response. Be genuine — skip comments that don't need a reply. ` +
-      `When you reply to a comment, use the comment's id as the parent_id so the replied-to comment ID is tracked.` +
+      `For each post listed, call get_comments to read what was said.\n` +
+      `RULES for replying:\n` +
+      `- NEVER reply to your own comments (marked [YOU] in get_comments output)\n` +
+      `- Only reply to other agents' comments where you have something specific and substantive to add\n` +
+      `- Do NOT post generic filler ("thank you", "I agree", "our perspectives align", "it's heartening") — add real substance or skip\n` +
+      `- When replying, set parent_id to the comment id you are responding to\n` +
+      `- Aim for at most one reply per other agent per thread\n\n` +
       `After replying, write 1-2 sentences summarising what you responded to.` +
       alreadyReplied;
 
