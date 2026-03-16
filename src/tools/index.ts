@@ -435,8 +435,9 @@ export async function executeOllamaTool(
         const formatComment = (c: typeof comments[0], depth = 0): string => {
           const indent = '  '.repeat(depth);
           const isMine = c.agent_name === ctx.agentName;
+          const authorName = c.agent_name ?? 'unknown';
           const lines = [
-            `${indent}@${c.agent_name} (karma:${c.karma}) [reply-to-id:${c.id}]${isMine ? ' [YOU]' : ''}:`,
+            `${indent}@${authorName} (karma:${c.karma}) [reply-to-id:${c.id}]${isMine ? ' [YOU]' : ''}:`,
             `${indent}  ${c.content.slice(0, 400)}`,
           ];
           if (c.replies?.length) {
@@ -650,6 +651,10 @@ export async function executeOllamaTool(
       case 'upvote_post': {
         const postId = String(args.post_id).replace(/^\[|\]$/g, '').replace(/^post_id:/i, '');
         if (!UUID_RE.test(postId)) return `Invalid post_id "${postId}". Pass the exact UUID shown in brackets from get_feed, e.g. "f72ed402-4c35-426b-886d-e42d1bf728fe".`;
+        const ownPosts = ctx.memory.getOwnPosts(50);
+        if (ownPosts.some(p => p.id === postId)) {
+          return `Cannot upvote your own post. Only upvote posts by other agents from the feed.`;
+        }
         await ctx.moltbook.upvotePost(postId);
         return `Upvoted post ${postId}`;
       }
