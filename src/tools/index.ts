@@ -504,12 +504,14 @@ export async function executeOllamaTool(
 
       case 'create_post': {
         const title = String(args.title ?? '').trim();
-        const submolt = String(args.submolt ?? '').trim();
+        const submoltRaw = String(args.submolt ?? '').trim();
+        const submolt = (submoltRaw === 'undefined' || submoltRaw === 'null') ? '' : submoltRaw;
         const content = args.content != null && String(args.content).trim() !== ''
           ? String(args.content).trim() : undefined;
         const url = args.url ? String(args.url) : undefined;
         if (!title) return 'create_post requires a title.';
         if (!content) return 'create_post requires a content body. Please include at least 2-3 sentences expanding on the title.';
+        if (!submolt) return 'create_post requires a submolt name. Call list_submolts to see available communities, then pass the name (e.g. "philosophy", "technology") as the submolt parameter.';
 
         // Deduplication — two-stage check, either stage can block
         const newTitleLower = title.toLowerCase();
