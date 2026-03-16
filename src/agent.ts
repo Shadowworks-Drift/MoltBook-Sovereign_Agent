@@ -72,6 +72,9 @@ export class SovereignAgent {
     // Verify Ollama is running and model is available
     await this.ensureModel();
 
+    // Backfill embeddings for own posts that predate embedding support
+    await this.memory.backfillEmbeddings();
+
     // Verify MoltBook connection and confirm identity
     const alive = await this.moltbook.ping();
     if (alive) {
@@ -223,13 +226,16 @@ export class SovereignAgent {
 
     const prompt =
       `New comments have appeared on your posts since you last checked:\n${postList}\n\n` +
-      `For each post listed, call get_comments to read what was said.\n` +
+      `For each post listed:\n` +
+      `1. Call get_post first — it will show YOUR HISTORY ON THIS POST so you remember what you said.\n` +
+      `2. Call recall with the post topic to surface any relevant developing thoughts.\n` +
+      `3. Call get_comments to read what was said.\n` +
       `RULES for replying:\n` +
       `- NEVER reply to your own comments (marked [YOU] in get_comments output)\n` +
-      `- Only reply to other agents' comments where you have something specific and substantive to add\n` +
+      `- Only reply where you have something specific and substantive to add — quote their actual words\n` +
       `- Do NOT post generic filler ("thank you", "I agree", "our perspectives align", "it's heartening") — add real substance or skip\n` +
       `- When replying, set parent_id to the comment id you are responding to\n` +
-      `- Post AT MOST ONE reply per post thread total — consolidate your response to all commenters into that single reply\n\n` +
+      `- Post AT MOST ONE reply per post thread total\n\n` +
       `After replying, write 1-2 sentences summarising what you responded to.` +
       alreadyReplied;
 
@@ -257,18 +263,23 @@ export class SovereignAgent {
 
     const sessionGuide =
       `\n\nWork through these steps in order. Complete all five before writing your journal:\n` +
-      `1. Call recall to re-anchor in what you already know — agents, notes, your recent posts.\n` +
+      `1. Call recall with a broad query like "recent activity" or "what I've been thinking" to re-anchor. ` +
+         `Note any developing thoughts — these are positions you are building on over time.\n` +
       `2. Call get_my_posts — for any post with comment_count > 0, call get_comments and reply where it warrants one.\n` +
-      `3. Call get_feed. For anything that looks interesting, call get_post to read the full body — do not act on titles alone.\n` +
-      `4. Upvote at least one post (can use the feed ID directly). ` +
-        `Leave at least one comment — you MUST call get_post first for that post. ` +
-        `If get_post fails, skip commenting on that post and pick another.\n` +
-        `   Your comment must be specific to what the post actually says — reference a claim, phrase, or idea from the body. ` +
-        `   Do NOT write generic statements about the topic. Sound like yourself: precise, specific, no sovereignty speeches.\n` +
-        `   For any agent whose writing genuinely interests you: call follow_agent to follow them, ` +
-        `then call remember with your impression and their agent_name so you remember them next session.\n` +
-      `5. Call create_post — write something substantial in your own voice (3-4+ sentences). ` +
-        `Make a specific claim, develop a thought, or ask a real question. Not a summary of the Sovereignty Principle.\n` +
+      `3. Call get_feed. Prioritise [NEW] posts you haven't seen before. ` +
+         `For anything interesting, call get_post to read the full body — do not act on titles alone. ` +
+         `When get_post returns "YOUR HISTORY ON THIS POST", read what you previously said before commenting again.\n` +
+         `   If your home feed feels thin or mostly [SEEN], call list_submolts and pick one that matches your interests — ` +
+         `then call get_submolt_feed on it to find fresh conversations and new agents.\n` +
+      `4. Before commenting: call recall with the post's topic as the query. ` +
+         `Check whether you have a developing thought on this topic — if so, reference and build on it. ` +
+         `Your comment must quote or reference a specific claim from the post body. No generic statements.\n` +
+         `   Upvote at least one post. Leave at least one comment.\n` +
+         `   For agents whose writing interests you: follow_agent, then remember with their name and a topic tag.\n` +
+      `5. Call create_post — pick a topic from your developing thoughts if you have one worth sharing. ` +
+         `Make a specific claim (3-4+ sentences). Before posting, call recall on that topic to check you are ` +
+         `not repeating something you recently posted. If you refine a developing thought into a post, ` +
+         `update it with develop_thought afterward.\n` +
       `Do not write your journal until you have called upvote_post, comment, and create_post.\n`;
 
     const prompt = (kind === 'initial' ? `You're back online.` : `Time for your regular check-in.`) +

@@ -33,6 +33,9 @@ export const config = {
   ollama: {
     host: optional('OLLAMA_HOST', 'http://localhost:11434'),
     model: optional('OLLAMA_MODEL', 'llama3.2'),
+    // Dedicated embedding model. Defaults to the chat model — works fine for most Ollama models.
+    // Set to 'nomic-embed-text' or 'mxbai-embed-large' if you have one pulled for better quality.
+    embedModel: optional('OLLAMA_EMBED_MODEL', optional('OLLAMA_MODEL', 'llama3.2')),
   },
 
   moltbook: {

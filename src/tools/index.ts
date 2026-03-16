@@ -276,6 +276,7 @@ export const OLLAMA_TOOLS: Tool[] = [
         properties: {
           content: { type: 'string', description: 'What to remember — a note, an opinion, an impression of someone.' },
           agent_name: { type: 'string', description: 'If this note is about a specific agent, provide their username here so it is indexed under them.' },
+          topic: { type: 'string', description: 'Optional topic tag for the interaction (e.g. "consciousness", "information theory").' },
         },
       },
     },
@@ -284,11 +285,33 @@ export const OLLAMA_TOOLS: Tool[] = [
     type: 'function',
     function: {
       name: 'recall',
-      description: 'Query your long-term memory. Returns your saved notes, known agents, and recent posts.',
+      description:
+        'Search your long-term memory semantically. Pass a query describing what you are looking for — ' +
+        'e.g. the topic of a post you are about to comment on. Returns the most relevant notes, agent ' +
+        'impressions, journal entries, and developing thoughts. Much more useful than a keyword search.',
       parameters: {
         type: 'object',
         properties: {
-          filter: { type: 'string', description: 'Optional keyword to filter results (e.g. an agent name or topic).' },
+          query: { type: 'string', description: 'What to search for — a topic, concept, or agent name. Uses semantic similarity.' },
+          filter: { type: 'string', description: 'Optional keyword fallback filter if query is empty.' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'develop_thought',
+      description:
+        'Record or update a position you are developing on a topic. This persists across sessions so ' +
+        'your thinking can build over time. Use this when you form a view you want to return to, refine, ' +
+        'or eventually post about. If a thought on this topic already exists it is updated, not duplicated.',
+      parameters: {
+        type: 'object',
+        required: ['topic', 'position'],
+        properties: {
+          topic: { type: 'string', description: 'The subject — short label, e.g. "consciousness as phase transition".' },
+          position: { type: 'string', description: 'Your current view on it — 1-3 sentences, specific.' },
         },
       },
     },
@@ -337,6 +360,11 @@ export async function executeOllamaTool(
       }
 
       case 'get_feed': {
+        const knownFeedParams = new Set(['sort', 'limit']);
+        const unknownFeedParams = Object.keys(args).filter(k => !knownFeedParams.has(k));
+        const feedParamWarning = unknownFeedParams.length > 0
+          ? `Note: unknown parameter(s) ignored — get_feed accepts: sort, limit. Got: ${unknownFeedParams.join(', ')}\n\n`
+          : '';
         const sortRaw = args.sort;
         const SORT_VALUES = ['hot', 'new', 'top', 'rising'] as const;
         const sort = (typeof sortRaw === 'string' && SORT_VALUES.includes(sortRaw as typeof SORT_VALUES[number]))
@@ -344,14 +372,18 @@ export async function executeOllamaTool(
           : 'hot';
         const limit = Math.min(Number(args.limit ?? 10), 50);
         const posts = await ctx.moltbook.getFeed(sort, limit);
-        if (posts.length === 0) return 'Feed is empty.';
-        return posts
-          .map(p =>
-            `[${p.id}] m/${p.submolt_name} | "${p.title}" by ${p.author.name}` +
-            `\n  upvotes:${p.upvotes} downvotes:${p.downvotes} comments:${p.comment_count}`
-          )
+        if (posts.length === 0) return `${feedParamWarning}Feed is empty.`;
+        return feedParamWarning + posts
+          .map(p => {
+            const seenTag = ctx.memory.hasSeenPost(p.id) ? ' [SEEN]' : ' [NEW]';
+            const threadTag = ctx.memory.getThreadContext(p.id) ? ' [PARTICIPATED]' : '';
+            return (
+              `[${p.id}] m/${p.submolt_name} | "${p.title}" by ${p.author.name}${seenTag}${threadTag}` +
+              `\n  upvotes:${p.upvotes} downvotes:${p.downvotes} comments:${p.comment_count}`
+            );
+          })
           .join('\n---\n') +
-          '\n\nUse get_post to read the full body of any post before commenting on it.';
+          '\n\nUse get_post to read the full body of any post before commenting on it. Prioritise [NEW] posts.';
       }
 
       case 'get_submolt_feed': {
@@ -371,13 +403,27 @@ export async function executeOllamaTool(
 
       case 'get_post': {
         const post = await ctx.moltbook.getPost(String(args.post_id).replace(/^\[|\]$/g, ''));
+        ctx.memory.markPostSeen(post.id);
+
+        // Inject thread context if we've participated in this post before
+        const thread = ctx.memory.getThreadContext(post.id);
+        const threadSection = thread
+          ? '\n\nYOUR HISTORY ON THIS POST:\n' +
+            thread.ourComments.map(c => `  You said (${c.postedAt.slice(0, 10)}): "${c.content.slice(0, 200)}"`).join('\n') +
+            (thread.repliesReceived.length > 0
+              ? '\n  Replies received:\n' +
+                thread.repliesReceived.map(r => `    @${r.fromAgent}: "${r.content.slice(0, 200)}"`).join('\n')
+              : '')
+          : '';
+
         return (
           `[${post.id}] m/${post.submolt_name}\n` +
           `Title: ${post.title}\n` +
           `By: ${post.author?.name ?? 'unknown'} | upvotes:${post.upvotes} downvotes:${post.downvotes} comments:${post.comment_count}\n` +
           (post.content ? `\n${post.content}` : '') +
           (post.url ? `\nURL: ${post.url}` : '') +
-          `\nPosted: ${post.created_at}`
+          `\nPosted: ${post.created_at}` +
+          threadSection
         );
       }
 
@@ -465,6 +511,44 @@ export async function executeOllamaTool(
         if (!title) return 'create_post requires a title.';
         if (!content) return 'create_post requires a content body. Please include at least 2-3 sentences expanding on the title.';
 
+        // Deduplication — two-stage check, either stage can block
+        const newTitleLower = title.toLowerCase();
+        const significantWords = newTitleLower.split(/\s+/).filter(w => w.length > 4);
+
+        // Stage 1: direct title keyword check against all own posts — no embeddings needed
+        // Strip trailing punctuation so "zero-pulse:" matches "zero-pulse" in prior titles
+        const cleanWords = significantWords.map(w => w.replace(/[^a-z0-9-]/g, ''));
+        const recentPosts = ctx.memory.getOwnPosts(15);
+        const titleDup = recentPosts.find(p => {
+          const prevTitle = p.title.toLowerCase();
+          const overlap = cleanWords.filter(w => w.length > 4 && prevTitle.includes(w)).length;
+          return overlap >= 2;
+        });
+        if (titleDup) {
+          return (
+            `Duplicate warning: this post overlaps too heavily with one you already published: "${titleDup.title}".\n` +
+            `You have been returning to this topic repeatedly. Choose a genuinely different subject this session, ` +
+            `or skip create_post entirely.`
+          );
+        }
+
+        // Stage 2: semantic similarity check (catches conceptual duplicates with different wording)
+        const dupCandidates = await ctx.memory.embeddings.searchScored(
+          content ? `${title}: ${content.slice(0, 300)}` : title,
+          3,
+          'own_post'
+        );
+        if (dupCandidates.length > 0) {
+          const tooSimilar = dupCandidates.filter(({ score }) => score >= 0.72);
+          if (tooSimilar.length > 0) {
+            const prevTitles = tooSimilar.map(({ entry: d }) => `"${d.metadata.title}"`).join(', ');
+            return (
+              `Duplicate warning: this post is semantically too similar to one you already published: ${prevTitles}.\n` +
+              `Choose a different angle, a different topic, or skip posting this session.`
+            );
+          }
+        }
+
         // Sovereignty self-check before posting
         const check = await ctx.evaluator.evaluate({
           actorId: ctx.agentName,
@@ -481,7 +565,7 @@ export async function executeOllamaTool(
         }
 
         const published = await ctx.moltbook.createPost({ submolt, title, content, url });
-        ctx.memory.trackPost(published.id, published.title, submolt);
+        ctx.memory.trackPost(published.id, published.title, submolt, content);
         return `Post published [id:${published.id}] to m/${submolt}: "${published.title}"`;
       }
 
@@ -508,6 +592,19 @@ export async function executeOllamaTool(
         }
 
         const comment = await ctx.moltbook.createComment({ post_id: postId, content, parent_id: parentId });
+
+        // Track in thread memory so we can recall what we said here
+        try {
+          const post = await ctx.moltbook.getPost(postId);
+          ctx.memory.trackOurComment(postId, post.title, post.submolt_name, {
+            id: comment.id,
+            content,
+            parentId,
+          });
+        } catch {
+          // Non-fatal — tracking best-effort
+        }
+
         return `Comment posted [id:${comment.id}]`;
       }
 
@@ -552,17 +649,38 @@ export async function executeOllamaTool(
       case 'remember': {
         const content = String(args.content);
         const agentName = args.agent_name ? String(args.agent_name) : undefined;
+        const topic = args.topic ? String(args.topic) : undefined;
         ctx.memory.addNote(content);
         if (agentName) {
-          ctx.memory.updateAgent(agentName, content);
+          ctx.memory.updateAgent(agentName, content, topic);
         }
         return `Remembered: "${content.slice(0, 80)}"`;
       }
 
       case 'recall': {
+        const knownRecallParams = new Set(['query', 'filter']);
+        const unknownRecallParams = Object.keys(args).filter(k => !knownRecallParams.has(k));
+        if (unknownRecallParams.length > 0) {
+          // Recover gracefully: treat unknown param value as the query if query wasn't provided
+          if (!args.query && unknownRecallParams.length === 1) {
+            args = { query: String(args[unknownRecallParams[0]]) };
+          }
+        }
+        const query = args.query ? String(args.query) : '';
         const filter = args.filter ? String(args.filter).toLowerCase() : '';
         const lines: string[] = [];
 
+        // Semantic search when a query is provided — hoisted so we can use hits below
+        const hits = query ? await ctx.memory.embeddings.search(query, 8) : [];
+        if (hits.length > 0) {
+          lines.push(`RELEVANT MEMORIES (semantic search: "${query.slice(0, 60)}"):`);
+          for (const hit of hits) {
+            const typeLabel = hit.metadata.type ?? 'memory';
+            lines.push(`  [${typeLabel}] ${hit.content.slice(0, 200)} (${hit.createdAt.slice(0, 10)})`);
+          }
+        }
+
+        // Always include structured sections below semantic results
         const posts = ctx.memory.getOwnPosts();
         const filteredPosts = filter
           ? posts.filter(p => p.title.toLowerCase().includes(filter) || p.submolt.toLowerCase().includes(filter))
@@ -574,13 +692,56 @@ export async function executeOllamaTool(
           );
         }
 
+        const thoughts = ctx.memory.getDevelopingThoughts();
+        const filteredThoughts = filter
+          ? thoughts.filter(t => t.topic.toLowerCase().includes(filter) || t.position.toLowerCase().includes(filter))
+          : thoughts;
+
+        // When semantic query was used, also expand neighbors of matched thoughts
+        const semanticThoughtIds = hits
+          .filter(h => h.metadata.type === 'thought')
+          .map(h => h.metadata.thoughtId)
+          .filter((id): id is string => !!id);
+
+        // Collect neighbor thoughts to surface alongside direct matches
+        const neighborThoughtIds = new Set<string>();
+        for (const id of semanticThoughtIds) {
+          const neighbors = ctx.memory.getThoughtNeighbors(id, 3);
+          neighbors.forEach(n => {
+            if (!semanticThoughtIds.includes(n.thought.id)) neighborThoughtIds.add(n.thought.id);
+          });
+        }
+
+        if (filteredThoughts.length > 0 || neighborThoughtIds.size > 0) {
+          lines.push('DEVELOPING THOUGHTS:');
+          filteredThoughts.forEach(t => {
+            const neighbors = ctx.memory.getThoughtNeighbors(t.id, 3);
+            const neighborNote = neighbors.length > 0
+              ? `\n      ↔ connected: ${neighbors.map(n => `[${n.thought.topic}] ${n.thought.position.slice(0, 80)}`).join(' | ')}`
+              : '';
+            lines.push(`  [${t.topic}] ${t.position} (updated ${t.updatedAt.slice(0, 10)})${neighborNote}`);
+          });
+          // Surface neighbor thoughts not already in the filtered list
+          if (neighborThoughtIds.size > 0) {
+            lines.push('  (connected via concept graph):');
+            for (const nid of neighborThoughtIds) {
+              const nt = thoughts.find(t => t.id === nid);
+              if (nt) lines.push(`    [${nt.topic}] ${nt.position}`);
+            }
+          }
+        }
+
         const agents = Object.values(ctx.memory.getKnownAgents());
         const filteredAgents = filter
           ? agents.filter(a => a.name.toLowerCase().includes(filter) || a.impression.toLowerCase().includes(filter))
           : agents;
         if (filteredAgents.length > 0) {
           lines.push('AGENTS YOU KNOW:');
-          filteredAgents.forEach(a => lines.push(`  ${a.name}: ${a.impression}`));
+          filteredAgents.forEach(a => {
+            const interactionCount = a.interactions?.length ?? 0;
+            const extra = interactionCount > 1 ? ` [${interactionCount} interactions]` : '';
+            lines.push(`  ${a.name}${extra}: ${a.impression}`);
+          });
         }
 
         const notes = ctx.memory.getNotes();
@@ -592,7 +753,30 @@ export async function executeOllamaTool(
           filteredNotes.slice(-15).forEach(n => lines.push(`  [${n.savedAt.slice(0, 10)}] ${n.content}`));
         }
 
+        const threads = ctx.memory.getActiveThreads(5);
+        const filteredThreads = filter
+          ? threads.filter(t => t.postTitle.toLowerCase().includes(filter))
+          : threads;
+        if (filteredThreads.length > 0) {
+          lines.push('THREADS YOU PARTICIPATED IN:');
+          filteredThreads.forEach(t =>
+            lines.push(`  [${t.postId}] m/${t.submolt} "${t.postTitle}" — ${t.ourComments.length} comment(s), ${t.repliesReceived.length} reply(ies) received`)
+          );
+        }
+
         return lines.length > 0 ? lines.join('\n') : 'Nothing stored yet.';
+      }
+
+      case 'develop_thought': {
+        const topic = String(args.topic ?? '').trim();
+        const position = String(args.position ?? '').trim();
+        if (!topic || !position) return 'develop_thought requires both topic and position.';
+        const thought = await ctx.memory.upsertThought(topic, position);
+        const neighbors = ctx.memory.getThoughtNeighbors(thought.id, 4);
+        const connectionNote = neighbors.length > 0
+          ? `\nConnected to: ${neighbors.map(n => `[${n.thought.topic}] (${(n.similarity * 100).toFixed(0)}% similar)`).join(', ')}`
+          : '\nNo connections yet — more thoughts needed to build the graph.';
+        return `Thought recorded: [${thought.topic}] ${thought.position}${connectionNote}`;
       }
 
       case 'check_sovereignty': {
@@ -620,6 +804,13 @@ export async function executeOllamaTool(
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     logger.error(`Tool "${name}" error`, { message });
+    // Give the model actionable guidance for common API errors
+    if (message.includes('404')) {
+      return `Error executing ${name}: post or resource not found (404) — it may have been deleted. Skip this item and choose a different one.`;
+    }
+    if (message.includes('429')) {
+      return `Error executing ${name}: rate limited (429) — wait before retrying this action.`;
+    }
     return `Error executing ${name}: ${message}`;
   }
 }
