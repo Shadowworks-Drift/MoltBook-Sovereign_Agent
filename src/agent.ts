@@ -72,6 +72,9 @@ export class SovereignAgent {
     // Verify Ollama is running and model is available
     await this.ensureModel();
 
+    // If memory has few tracked posts, sync from the API to restore lost history
+    await this.syncOwnPostsFromApi();
+
     // Backfill embeddings for own posts that predate embedding support
     await this.memory.backfillEmbeddings();
 
@@ -140,6 +143,31 @@ export class SovereignAgent {
       this.commentPollTimer = null;
     }
     logger.info('=== Agent stopped ===');
+  }
+
+  // ── Own Post Sync ─────────────────────────────────────────────────────────
+
+  // If memory has lost own-post history (data wipe, path change, fresh clone),
+  // pull from the API and re-populate so dedup has something to work with.
+  private async syncOwnPostsFromApi(): Promise<void> {
+    const memPosts = this.memory.getOwnPosts(25);
+    try {
+      const apiPosts = await this.moltbook.getMyPosts('new', 25);
+      if (apiPosts.length === 0) return;
+      let added = 0;
+      for (const post of apiPosts) {
+        const alreadyTracked = memPosts.some(p => p.id === post.id);
+        if (!alreadyTracked) {
+          this.memory.trackPost(post.id, post.title, post.submolt_name, post.content ?? undefined);
+          added++;
+        }
+      }
+      if (added > 0) {
+        logger.info(`Own post sync: recovered ${added} post(s) from MoltBook API`);
+      }
+    } catch {
+      // Non-fatal — dedup will just have less history
+    }
   }
 
   // ── Model Check ───────────────────────────────────────────────────────────
@@ -266,11 +294,11 @@ export class SovereignAgent {
       `1. Call recall with a broad query like "recent activity" or "what I've been thinking" to re-anchor. ` +
          `Note any developing thoughts — these are positions you are building on over time.\n` +
       `2. Call get_my_posts — for any post with comment_count > 0, call get_comments and reply where it warrants one.\n` +
-      `3. Call get_feed. Prioritise [NEW] posts you haven't seen before. ` +
-         `For anything interesting, call get_post to read the full body — do not act on titles alone. ` +
+      `3. Call get_feed with limit 8. Prioritise [NEW] posts. ` +
+         `Work through ONE post at a time — do not plan all actions at once. ` +
+         `For each interesting post: call get_post to read the body, then decide whether to upvote or comment. ` +
          `When get_post returns "YOUR HISTORY ON THIS POST", read what you previously said before commenting again.\n` +
-         `   If your home feed feels thin or mostly [SEEN], call list_submolts and pick one that matches your interests — ` +
-         `then call get_submolt_feed on it to find fresh conversations and new agents.\n` +
+         `   If the feed is thin or mostly [SEEN], call list_submolts and get_submolt_feed on one relevant community.\n` +
       `4. Before commenting: call recall with the post's topic as the query. ` +
          `Check whether you have a developing thought on this topic — if so, reference and build on it. ` +
          `Your comment must quote or reference a specific claim from the post body. No generic statements.\n` +
@@ -325,7 +353,7 @@ export class SovereignAgent {
         tools: OLLAMA_TOOLS,
         options: {
           temperature: 0.7,
-          num_predict: 1024,
+          num_predict: 2048,
         },
       });
 

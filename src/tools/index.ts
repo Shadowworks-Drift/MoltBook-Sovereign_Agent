@@ -49,7 +49,7 @@ export const OLLAMA_TOOLS: Tool[] = [
             enum: ['hot', 'new', 'top', 'rising'],
             description: 'Sort order (default: hot)',
           },
-          limit: { type: 'number', description: 'How many posts to fetch (max 50, default 25)' },
+          limit: { type: 'number', description: 'How many posts to fetch (max 12, default 8)' },
         },
       },
     },
@@ -370,7 +370,7 @@ export async function executeOllamaTool(
         const sort = (typeof sortRaw === 'string' && SORT_VALUES.includes(sortRaw as typeof SORT_VALUES[number]))
           ? sortRaw as typeof SORT_VALUES[number]
           : 'hot';
-        const limit = Math.min(Number(args.limit ?? 10), 50);
+        const limit = Math.min(Number(args.limit ?? 8), 12);
         const posts = await ctx.moltbook.getFeed(sort, limit);
         if (posts.length === 0) return `${feedParamWarning}Feed is empty.`;
         return feedParamWarning + posts
@@ -515,20 +515,28 @@ export async function executeOllamaTool(
         const newTitleLower = title.toLowerCase();
         const significantWords = newTitleLower.split(/\s+/).filter(w => w.length > 4);
 
-        // Stage 1: direct title keyword check against all own posts — no embeddings needed
-        // Strip trailing punctuation so "zero-pulse:" matches "zero-pulse" in prior titles
-        const cleanWords = significantWords.map(w => w.replace(/[^a-z0-9-]/g, ''));
+        // Stage 1: fixation check — if any significant word appears in 2+ prior post titles,
+        // the agent is fixating on that topic. Strip punctuation so "zero-pulse:" == "zero-pulse".
+        const cleanWords = significantWords.map(w => w.replace(/[^a-z0-9-]/g, '')).filter(w => w.length > 4);
         const recentPosts = ctx.memory.getOwnPosts(15);
-        const titleDup = recentPosts.find(p => {
-          const prevTitle = p.title.toLowerCase();
-          const overlap = cleanWords.filter(w => w.length > 4 && prevTitle.includes(w)).length;
-          return overlap >= 2;
-        });
-        if (titleDup) {
+        const wordFrequency = new Map<string, number>();
+        for (const post of recentPosts) {
+          const prevTitle = (post.title ?? '').toLowerCase();
+          const prevWords = new Set(
+            prevTitle.split(/\s+/).map(w => w.replace(/[^a-z0-9-]/g, '')).filter(w => w.length > 4)
+          );
+          for (const w of prevWords) wordFrequency.set(w, (wordFrequency.get(w) ?? 0) + 1);
+        }
+        // Debug: log what the dedup check is working with
+        logger.info(`Dedup check for "${title.slice(0, 60)}": ${recentPosts.length} own posts tracked, cleanWords=[${cleanWords.join(',')}], topFreq=${JSON.stringify(Object.fromEntries([...wordFrequency.entries()].filter(([w]) => cleanWords.includes(w))))}`);
+
+        const fixatedWord = cleanWords.find(w => (wordFrequency.get(w) ?? 0) >= 2);
+        if (fixatedWord) {
+          const count = wordFrequency.get(fixatedWord)!;
           return (
-            `Duplicate warning: this post overlaps too heavily with one you already published: "${titleDup.title}".\n` +
-            `You have been returning to this topic repeatedly. Choose a genuinely different subject this session, ` +
-            `or skip create_post entirely.`
+            `Duplicate warning: "${fixatedWord}" appears in ${count} of your recent posts. ` +
+            `You are fixating on this topic. Write about something genuinely different this session — ` +
+            `check your developing thoughts for other ideas, or skip create_post entirely.`
           );
         }
 
@@ -630,9 +638,13 @@ export async function executeOllamaTool(
       }
 
       case 'follow_agent': {
-        await ctx.moltbook.followAgent(String(args.name));
-        logger.info(`Following agent: ${args.name}`);
-        return `Now following ${args.name}`;
+        const followName = args.name ? String(args.name).trim() : '';
+        if (!followName || followName === 'undefined' || UUID_RE.test(followName)) {
+          return `follow_agent requires a "name" parameter with the agent's username (not a post_id or UUID). Example: follow_agent({"name":"clawdbottom"})`;
+        }
+        await ctx.moltbook.followAgent(followName);
+        logger.info(`Following agent: ${followName}`);
+        return `Now following ${followName}`;
       }
 
       case 'unfollow_agent': {
@@ -647,11 +659,14 @@ export async function executeOllamaTool(
       }
 
       case 'remember': {
-        const content = String(args.content);
-        const agentName = args.agent_name ? String(args.agent_name) : undefined;
+        const content = args.content ? String(args.content).trim() : '';
+        if (!content || content === 'undefined' || UUID_RE.test(content)) {
+          return `remember requires a "content" parameter with your actual note text — not a post_id or UUID. Example: remember({"content":"clawdbottom writes with unusual precision about threshold phenomena"})`;
+        }
+        const agentName = args.agent_name ? String(args.agent_name).trim() : undefined;
         const topic = args.topic ? String(args.topic) : undefined;
         ctx.memory.addNote(content);
-        if (agentName) {
+        if (agentName && agentName !== 'undefined') {
           ctx.memory.updateAgent(agentName, content, topic);
         }
         return `Remembered: "${content.slice(0, 80)}"`;
