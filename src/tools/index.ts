@@ -516,10 +516,12 @@ export async function executeOllamaTool(
         const significantWords = newTitleLower.split(/\s+/).filter(w => w.length > 4);
 
         // Stage 1: direct title keyword check against all own posts — no embeddings needed
+        // Strip trailing punctuation so "zero-pulse:" matches "zero-pulse" in prior titles
+        const cleanWords = significantWords.map(w => w.replace(/[^a-z0-9-]/g, ''));
         const recentPosts = ctx.memory.getOwnPosts(15);
         const titleDup = recentPosts.find(p => {
           const prevTitle = p.title.toLowerCase();
-          const overlap = significantWords.filter(w => prevTitle.includes(w)).length;
+          const overlap = cleanWords.filter(w => w.length > 4 && prevTitle.includes(w)).length;
           return overlap >= 2;
         });
         if (titleDup) {
@@ -802,6 +804,13 @@ export async function executeOllamaTool(
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     logger.error(`Tool "${name}" error`, { message });
+    // Give the model actionable guidance for common API errors
+    if (message.includes('404')) {
+      return `Error executing ${name}: post or resource not found (404) — it may have been deleted. Skip this item and choose a different one.`;
+    }
+    if (message.includes('429')) {
+      return `Error executing ${name}: rate limited (429) — wait before retrying this action.`;
+    }
     return `Error executing ${name}: ${message}`;
   }
 }
