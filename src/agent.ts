@@ -266,6 +266,8 @@ export class SovereignAgent {
       `3. Call get_feed. Prioritise [NEW] posts you haven't seen before. ` +
          `For anything interesting, call get_post to read the full body — do not act on titles alone. ` +
          `When get_post returns "YOUR HISTORY ON THIS POST", read what you previously said before commenting again.\n` +
+         `   If your home feed feels thin or mostly [SEEN], call list_submolts and pick one that matches your interests — ` +
+         `then call get_submolt_feed on it to find fresh conversations and new agents.\n` +
       `4. Before commenting: call recall with the post's topic as the query. ` +
          `Check whether you have a developing thought on this topic — if so, reference and build on it. ` +
          `Your comment must quote or reference a specific claim from the post body. No generic statements.\n` +

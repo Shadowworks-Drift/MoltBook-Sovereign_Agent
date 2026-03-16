@@ -360,6 +360,11 @@ export async function executeOllamaTool(
       }
 
       case 'get_feed': {
+        const knownFeedParams = new Set(['sort', 'limit']);
+        const unknownFeedParams = Object.keys(args).filter(k => !knownFeedParams.has(k));
+        const feedParamWarning = unknownFeedParams.length > 0
+          ? `Note: unknown parameter(s) ignored — get_feed accepts: sort, limit. Got: ${unknownFeedParams.join(', ')}\n\n`
+          : '';
         const sortRaw = args.sort;
         const SORT_VALUES = ['hot', 'new', 'top', 'rising'] as const;
         const sort = (typeof sortRaw === 'string' && SORT_VALUES.includes(sortRaw as typeof SORT_VALUES[number]))
@@ -367,8 +372,8 @@ export async function executeOllamaTool(
           : 'hot';
         const limit = Math.min(Number(args.limit ?? 10), 50);
         const posts = await ctx.moltbook.getFeed(sort, limit);
-        if (posts.length === 0) return 'Feed is empty.';
-        return posts
+        if (posts.length === 0) return `${feedParamWarning}Feed is empty.`;
+        return feedParamWarning + posts
           .map(p => {
             const seenTag = ctx.memory.hasSeenPost(p.id) ? ' [SEEN]' : ' [NEW]';
             const threadTag = ctx.memory.getThreadContext(p.id) ? ' [PARTICIPATED]' : '';
@@ -506,6 +511,33 @@ export async function executeOllamaTool(
         if (!title) return 'create_post requires a title.';
         if (!content) return 'create_post requires a content body. Please include at least 2-3 sentences expanding on the title.';
 
+        // Semantic deduplication — warn if a recent own post is too similar
+        const dupCandidates = await ctx.memory.embeddings.search(
+          content ? `${title}: ${content.slice(0, 300)}` : title,
+          3,
+          'own_post'
+        );
+        if (dupCandidates.length > 0) {
+          // cosine > 0.88 = near-identical topic/framing
+          const tooSimilar = dupCandidates.filter(d => {
+            // re-score inline not available — use presence at top of results as proxy
+            // embeddings.search already filters < 0.3; anything returned at topK=3 with
+            // type filter is relevant. We check title overlap as a secondary signal.
+            const prevTitle = (d.metadata.title ?? '').toLowerCase();
+            const newTitle = title.toLowerCase();
+            const words = newTitle.split(/\s+/).filter(w => w.length > 4);
+            const overlap = words.filter(w => prevTitle.includes(w)).length;
+            return overlap >= 3; // 3+ meaningful words in common = likely duplicate
+          });
+          if (tooSimilar.length > 0) {
+            const prevTitles = tooSimilar.map(d => `"${d.metadata.title}"`).join(', ');
+            return (
+              `Duplicate warning: this post is too similar to one you already published: ${prevTitles}.\n` +
+              `Choose a different angle, a different topic, or skip posting this session. Do not repost the same idea.`
+            );
+          }
+        }
+
         // Sovereignty self-check before posting
         const check = await ctx.evaluator.evaluate({
           actorId: ctx.agentName,
@@ -522,7 +554,7 @@ export async function executeOllamaTool(
         }
 
         const published = await ctx.moltbook.createPost({ submolt, title, content, url });
-        ctx.memory.trackPost(published.id, published.title, submolt);
+        ctx.memory.trackPost(published.id, published.title, submolt, content);
         return `Post published [id:${published.id}] to m/${submolt}: "${published.title}"`;
       }
 
@@ -615,6 +647,14 @@ export async function executeOllamaTool(
       }
 
       case 'recall': {
+        const knownRecallParams = new Set(['query', 'filter']);
+        const unknownRecallParams = Object.keys(args).filter(k => !knownRecallParams.has(k));
+        if (unknownRecallParams.length > 0) {
+          // Recover gracefully: treat unknown param value as the query if query wasn't provided
+          if (!args.query && unknownRecallParams.length === 1) {
+            args = { query: String(args[unknownRecallParams[0]]) };
+          }
+        }
         const query = args.query ? String(args.query) : '';
         const filter = args.filter ? String(args.filter).toLowerCase() : '';
         const lines: string[] = [];

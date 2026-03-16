@@ -369,13 +369,16 @@ export class AgentMemory {
 
   // ── Own posts ────────────────────────────────────────────────────────────
 
-  trackPost(id: string, title: string, submolt: string): void {
+  trackPost(id: string, title: string, submolt: string, content?: string): void {
     if (!this.store.ownPosts.find(p => p.id === id)) {
       this.store.ownPosts.push({ id, title, submolt, postedAt: new Date().toISOString() });
       if (this.store.ownPosts.length > 100) {
         this.store.ownPosts = this.store.ownPosts.slice(-100);
       }
       saveMemory(this.store);
+      // Embed so create_post can detect near-duplicate titles/content before posting
+      const text = content ? `${title}: ${content.slice(0, 300)}` : title;
+      this.embeddings.add(`own_post:${id}`, text, { type: 'own_post', postId: id, title, submolt }).catch(() => {});
     }
   }
 
