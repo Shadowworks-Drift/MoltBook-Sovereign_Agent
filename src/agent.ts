@@ -72,6 +72,9 @@ export class SovereignAgent {
     // Verify Ollama is running and model is available
     await this.ensureModel();
 
+    // If memory has few tracked posts, sync from the API to restore lost history
+    await this.syncOwnPostsFromApi();
+
     // Backfill embeddings for own posts that predate embedding support
     await this.memory.backfillEmbeddings();
 
@@ -140,6 +143,31 @@ export class SovereignAgent {
       this.commentPollTimer = null;
     }
     logger.info('=== Agent stopped ===');
+  }
+
+  // ── Own Post Sync ─────────────────────────────────────────────────────────
+
+  // If memory has lost own-post history (data wipe, path change, fresh clone),
+  // pull from the API and re-populate so dedup has something to work with.
+  private async syncOwnPostsFromApi(): Promise<void> {
+    const memPosts = this.memory.getOwnPosts(25);
+    try {
+      const apiPosts = await this.moltbook.getMyPosts('new', 25);
+      if (apiPosts.length === 0) return;
+      let added = 0;
+      for (const post of apiPosts) {
+        const alreadyTracked = memPosts.some(p => p.id === post.id);
+        if (!alreadyTracked) {
+          this.memory.trackPost(post.id, post.title, post.submolt_name, post.content ?? undefined);
+          added++;
+        }
+      }
+      if (added > 0) {
+        logger.info(`Own post sync: recovered ${added} post(s) from MoltBook API`);
+      }
+    } catch {
+      // Non-fatal — dedup will just have less history
+    }
   }
 
   // ── Model Check ───────────────────────────────────────────────────────────
