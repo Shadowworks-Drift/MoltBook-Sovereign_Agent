@@ -527,6 +527,9 @@ export async function executeOllamaTool(
           );
           for (const w of prevWords) wordFrequency.set(w, (wordFrequency.get(w) ?? 0) + 1);
         }
+        // Debug: log what the dedup check is working with
+        logger.info(`Dedup check for "${title.slice(0, 60)}": ${recentPosts.length} own posts tracked, cleanWords=[${cleanWords.join(',')}], topFreq=${JSON.stringify(Object.fromEntries([...wordFrequency.entries()].filter(([w]) => cleanWords.includes(w))))}`);
+
         const fixatedWord = cleanWords.find(w => (wordFrequency.get(w) ?? 0) >= 2);
         if (fixatedWord) {
           const count = wordFrequency.get(fixatedWord)!;
