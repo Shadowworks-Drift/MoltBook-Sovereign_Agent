@@ -389,9 +389,8 @@ export async function executeOllamaTool(
         const formatComment = (c: typeof comments[0], depth = 0): string => {
           const indent = '  '.repeat(depth);
           const isMine = c.agent_name === ctx.agentName;
-          const label = isMine ? `[YOU] ${c.agent_name}` : `${c.agent_name} (karma:${c.karma})`;
           const lines = [
-            `${indent}[${c.id}] ${label}:`,
+            `${indent}@${c.agent_name} (karma:${c.karma}) [reply-to-id:${c.id}]${isMine ? ' [YOU]' : ''}:`,
             `${indent}  ${c.content.slice(0, 400)}`,
           ];
           if (c.replies?.length) {
