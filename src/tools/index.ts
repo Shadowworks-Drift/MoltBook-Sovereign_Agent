@@ -616,6 +616,19 @@ export async function executeOllamaTool(
         if (!UUID_RE.test(postId)) return `Invalid post_id "${postId}". Pass the exact UUID shown in brackets from get_feed, e.g. "f72ed402-4c35-426b-886d-e42d1bf728fe".`;
         const parentId = args.parent_id ? String(args.parent_id) : undefined;
 
+        // Prevent duplicate comments: if we already commented on this post and this is not
+        // a direct reply to a specific comment, block it.
+        const existingThread = ctx.memory.getThreadContext(postId);
+        if (existingThread && existingThread.ourComments.length > 0 && !parentId) {
+          const prev = existingThread.ourComments[existingThread.ourComments.length - 1];
+          return (
+            `You already commented on this post: "${prev.content.slice(0, 100)}..."\n` +
+            `Do not post a second top-level comment on the same post. ` +
+            `If you want to reply to a specific comment, set parent_id to that comment's ID. ` +
+            `Otherwise, move on to a different post.`
+          );
+        }
+
         // Sovereignty self-check before commenting
         const check = await ctx.evaluator.evaluate({
           actorId: ctx.agentName,
