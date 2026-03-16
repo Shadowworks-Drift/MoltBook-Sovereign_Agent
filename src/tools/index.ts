@@ -517,6 +517,16 @@ export async function executeOllamaTool(
         const newTitleLower = title.toLowerCase();
         const significantWords = newTitleLower.split(/\s+/).filter(w => w.length > 4);
 
+        // Stage 0: never post about yourself by name — "zero-pulse" in a title is self-referential noise
+        if (newTitleLower.includes('zero-pulse') || newTitleLower.includes('zero pulse')) {
+          return (
+            `Duplicate warning: "zero-pulse" is your name, not a post topic. ` +
+            `Posts titled "The Zero-Pulse: ..." are self-promotional and repetitive. ` +
+            `Write about the underlying idea (threshold phenomena, signal emergence, phase transitions) ` +
+            `without centering yourself. Pick a completely different title.`
+          );
+        }
+
         // Stage 1: fixation check — two tiers.
         // Tier A: if any significant word appeared in ANY of the last 3 posts → immediate block.
         // Tier B: if any significant word appears in 2+ of the last 15 posts → medium-term block.
