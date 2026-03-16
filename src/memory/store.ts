@@ -451,6 +451,22 @@ export class AgentMemory {
     return this.store.ownPosts.slice(-limit);
   }
 
+  // Backfill embeddings for any own posts that predate embedding support.
+  // Called once at agent startup — safe to re-run, skips already-indexed posts.
+  async backfillEmbeddings(): Promise<void> {
+    const missing = this.store.ownPosts.filter(p => !this.embeddings.has(`own_post:${p.id}`));
+    if (missing.length === 0) return;
+    logger.info(`Backfilling embeddings for ${missing.length} own post(s)...`);
+    for (const post of missing) {
+      await this.embeddings.add(
+        `own_post:${post.id}`,
+        post.title,
+        { type: 'own_post', postId: post.id, title: post.title, submolt: post.submolt }
+      );
+    }
+    logger.info('Backfill complete.');
+  }
+
   // ── World brief — compact context snapshot injected into heartbeat ────────
 
   getWorldBrief(): string {

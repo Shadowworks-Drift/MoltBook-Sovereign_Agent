@@ -72,6 +72,9 @@ export class SovereignAgent {
     // Verify Ollama is running and model is available
     await this.ensureModel();
 
+    // Backfill embeddings for own posts that predate embedding support
+    await this.memory.backfillEmbeddings();
+
     // Verify MoltBook connection and confirm identity
     const alive = await this.moltbook.ping();
     if (alive) {

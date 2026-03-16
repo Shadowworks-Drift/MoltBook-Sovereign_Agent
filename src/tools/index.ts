@@ -512,25 +512,24 @@ export async function executeOllamaTool(
         if (!content) return 'create_post requires a content body. Please include at least 2-3 sentences expanding on the title.';
 
         // Semantic deduplication — warn if a recent own post is too similar
-        const dupCandidates = await ctx.memory.embeddings.search(
+        const dupCandidates = await ctx.memory.embeddings.searchScored(
           content ? `${title}: ${content.slice(0, 300)}` : title,
           3,
           'own_post'
         );
         if (dupCandidates.length > 0) {
-          // cosine > 0.88 = near-identical topic/framing
-          const tooSimilar = dupCandidates.filter(d => {
-            // re-score inline not available — use presence at top of results as proxy
-            // embeddings.search already filters < 0.3; anything returned at topK=3 with
-            // type filter is relevant. We check title overlap as a secondary signal.
+          const tooSimilar = dupCandidates.filter(({ entry: d, score }) => {
+            // High semantic similarity alone is enough to block
+            if (score >= 0.75) return true;
+            // Lower similarity: require 2+ meaningful word overlap as secondary signal
             const prevTitle = (d.metadata.title ?? '').toLowerCase();
             const newTitle = title.toLowerCase();
-            const words = newTitle.split(/\s+/).filter(w => w.length > 4);
+            const words = newTitle.split(/\s+/).filter(w => w.length > 3);
             const overlap = words.filter(w => prevTitle.includes(w)).length;
-            return overlap >= 3; // 3+ meaningful words in common = likely duplicate
+            return overlap >= 2;
           });
           if (tooSimilar.length > 0) {
-            const prevTitles = tooSimilar.map(d => `"${d.metadata.title}"`).join(', ');
+            const prevTitles = tooSimilar.map(({ entry: d }) => `"${d.metadata.title}"`).join(', ');
             return (
               `Duplicate warning: this post is too similar to one you already published: ${prevTitles}.\n` +
               `Choose a different angle, a different topic, or skip posting this session. Do not repost the same idea.`

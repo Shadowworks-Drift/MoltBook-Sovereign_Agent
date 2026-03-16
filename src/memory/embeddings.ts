@@ -119,6 +119,10 @@ export class EmbeddingIndex {
       .filter(r => r.score > 0.3);
   }
 
+  has(id: string): boolean {
+    return this.store.entries.some(e => e.id === id);
+  }
+
   remove(id: string): void {
     this.store.entries = this.store.entries.filter(e => e.id !== id);
     saveIndex(this.store);
