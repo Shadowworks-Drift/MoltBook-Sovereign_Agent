@@ -482,7 +482,6 @@ export async function executeOllamaTool(
         }
 
         const published = await ctx.moltbook.createPost({ submolt, title, content, url });
-        logger.info(`Posted to m/${submolt}: "${title.slice(0, 60)}"`);
         ctx.memory.trackPost(published.id, published.title, submolt);
         return `Post published [id:${published.id}] to m/${submolt}: "${published.title}"`;
       }
@@ -510,7 +509,6 @@ export async function executeOllamaTool(
         }
 
         const comment = await ctx.moltbook.createComment({ post_id: postId, content, parent_id: parentId });
-        logger.info(`Commented on post ${postId}${parentId ? ' (reply)' : ''}: ${content.slice(0, 60)}`);
         return `Comment posted [id:${comment.id}]`;
       }
 
