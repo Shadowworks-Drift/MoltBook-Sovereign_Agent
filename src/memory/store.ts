@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { config } from '../utils/config';
 import { logger } from '../utils/logger';
+import { EmbeddingIndex } from './embeddings';
 
 const MEMORY_FILE = path.join(config.storage.dataDir, 'agent-memory.json');
 
@@ -15,8 +16,14 @@ interface MemoryEntry {
 
 export interface KnownAgent {
   name: string;
-  impression: string;   // free-text summary the model writes
+  impression: string;
   lastInteracted: string;
+  // Accumulated interaction history — appended, never overwritten
+  interactions: Array<{
+    date: string;
+    topic: string;
+    summary: string;
+  }>;
 }
 
 export interface OwnPost {
@@ -26,24 +33,59 @@ export interface OwnPost {
   postedAt: string;
 }
 
+// A comment we wrote, tracked so we can recall what we said
+export interface OurComment {
+  id: string;
+  content: string;
+  parentId?: string; // set if this was a reply to someone else
+  postedAt: string;
+}
+
+// A reply we received on one of our comments
+export interface ReceivedReply {
+  id: string;
+  content: string;
+  fromAgent: string;
+  inReplyToCommentId: string; // our comment they replied to
+  receivedAt: string;
+}
+
+// Full thread context for a post we participated in
+export interface ThreadMemory {
+  postId: string;
+  postTitle: string;
+  submolt: string;
+  ourComments: OurComment[];
+  repliesReceived: ReceivedReply[];
+  lastActivityAt: string;
+}
+
+// An opinion or idea the agent is actively developing
+export interface DevelopingThought {
+  id: string;
+  topic: string;
+  position: string; // the current statement of the position
+  updatedAt: string;
+}
+
 interface MemoryStore {
   entries: Record<string, MemoryEntry>;
   lastPollId?: string;
-  // Heartbeat journals — stored separately so they don't pollute query threads
   heartbeatJournals: Array<{ content: string; timestamp: string }>;
-  // Interactive /query conversation turns only
   queryHistory: Array<{ role: 'user' | 'assistant'; content: string; timestamp: string }>;
-  // Structured world knowledge
   knownAgents: Record<string, KnownAgent>;
   ownPosts: OwnPost[];
   notes: Array<{ content: string; savedAt: string }>;
+  // New structures
+  threadMemory: Record<string, ThreadMemory>;  // postId -> thread
+  seenPostIds: Record<string, string>;          // postId -> seenAt ISO
+  developingThoughts: DevelopingThought[];
 }
 
 function loadMemory(): MemoryStore {
   try {
     if (fs.existsSync(MEMORY_FILE)) {
       const raw = JSON.parse(fs.readFileSync(MEMORY_FILE, 'utf-8')) as Partial<MemoryStore> & {
-        // migrate old field names
         conversationHistory?: Array<{ role: string; content: string; timestamp: string }>;
       };
       return {
@@ -54,6 +96,9 @@ function loadMemory(): MemoryStore {
         knownAgents: raw.knownAgents ?? {},
         ownPosts: raw.ownPosts ?? [],
         notes: raw.notes ?? [],
+        threadMemory: raw.threadMemory ?? {},
+        seenPostIds: raw.seenPostIds ?? {},
+        developingThoughts: raw.developingThoughts ?? [],
       };
     }
   } catch (err) {
@@ -66,6 +111,9 @@ function loadMemory(): MemoryStore {
     knownAgents: {},
     ownPosts: [],
     notes: [],
+    threadMemory: {},
+    seenPostIds: {},
+    developingThoughts: [],
   };
 }
 
@@ -76,9 +124,11 @@ function saveMemory(store: MemoryStore): void {
 
 export class AgentMemory {
   private store: MemoryStore;
+  readonly embeddings: EmbeddingIndex;
 
   constructor() {
     this.store = loadMemory();
+    this.embeddings = new EmbeddingIndex();
   }
 
   // ── Key-value store ──────────────────────────────────────────────────────
@@ -133,7 +183,7 @@ export class AgentMemory {
     saveMemory(this.store);
   }
 
-  // ── Heartbeat journals (autonomous sessions) ─────────────────────────────
+  // ── Heartbeat journals ───────────────────────────────────────────────────
 
   addHeartbeatJournal(content: string): void {
     this.store.heartbeatJournals.push({ content, timestamp: new Date().toISOString() });
@@ -141,6 +191,9 @@ export class AgentMemory {
       this.store.heartbeatJournals = this.store.heartbeatJournals.slice(-50);
     }
     saveMemory(this.store);
+    // Embed so it's searchable
+    const idx = this.store.heartbeatJournals.length - 1;
+    this.embeddings.add(`journal:${idx}:${Date.now()}`, content, { type: 'journal' }).catch(() => {});
   }
 
   // ── Query conversation history ───────────────────────────────────────────
@@ -159,10 +212,164 @@ export class AgentMemory {
       .map(({ role, content }) => ({ role, content }));
   }
 
-  // ── World knowledge ──────────────────────────────────────────────────────
+  // ── Seen posts ───────────────────────────────────────────────────────────
+
+  markPostSeen(postId: string): void {
+    if (!this.store.seenPostIds[postId]) {
+      this.store.seenPostIds[postId] = new Date().toISOString();
+      saveMemory(this.store);
+    }
+  }
+
+  hasSeenPost(postId: string): boolean {
+    return !!this.store.seenPostIds[postId];
+  }
+
+  // Prune seen posts older than 30 days to keep the store lean
+  pruneSeenPosts(): void {
+    const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
+    let changed = false;
+    for (const [id, seenAt] of Object.entries(this.store.seenPostIds)) {
+      if (new Date(seenAt).getTime() < cutoff) {
+        delete this.store.seenPostIds[id];
+        changed = true;
+      }
+    }
+    if (changed) saveMemory(this.store);
+  }
+
+  // ── Thread memory ────────────────────────────────────────────────────────
+
+  trackOurComment(
+    postId: string,
+    postTitle: string,
+    submolt: string,
+    comment: { id: string; content: string; parentId?: string }
+  ): void {
+    const thread = this.store.threadMemory[postId] ?? {
+      postId,
+      postTitle,
+      submolt,
+      ourComments: [],
+      repliesReceived: [],
+      lastActivityAt: new Date().toISOString(),
+    };
+    thread.ourComments.push({ ...comment, postedAt: new Date().toISOString() });
+    thread.lastActivityAt = new Date().toISOString();
+    this.store.threadMemory[postId] = thread;
+    saveMemory(this.store);
+
+    // Embed for semantic retrieval
+    this.embeddings.add(
+      `thread:${postId}:our:${comment.id}`,
+      `On post "${postTitle}": ${comment.content}`,
+      { type: 'thread', postId }
+    ).catch(() => {});
+  }
+
+  trackReplyReceived(
+    postId: string,
+    reply: { id: string; content: string; fromAgent: string; inReplyToCommentId: string }
+  ): void {
+    const thread = this.store.threadMemory[postId];
+    if (!thread) return; // only track replies on threads we participated in
+    thread.repliesReceived.push({ ...reply, receivedAt: new Date().toISOString() });
+    thread.lastActivityAt = new Date().toISOString();
+    saveMemory(this.store);
+  }
+
+  getThreadContext(postId: string): ThreadMemory | undefined {
+    return this.store.threadMemory[postId];
+  }
+
+  getActiveThreads(limit = 10): ThreadMemory[] {
+    return Object.values(this.store.threadMemory)
+      .sort((a, b) => new Date(b.lastActivityAt).getTime() - new Date(a.lastActivityAt).getTime())
+      .slice(0, limit);
+  }
+
+  // ── Agent knowledge ──────────────────────────────────────────────────────
+
+  updateAgent(name: string, impression: string, topic?: string): void {
+    const existing = this.store.knownAgents[name];
+    const now = new Date().toISOString();
+    this.store.knownAgents[name] = {
+      name,
+      impression, // latest summary
+      lastInteracted: now,
+      interactions: [
+        ...(existing?.interactions ?? []),
+        { date: now, topic: topic ?? 'general', summary: impression },
+      ].slice(-20), // keep last 20 interactions per agent
+    };
+    saveMemory(this.store);
+
+    this.embeddings.add(
+      `agent:${name}:${Date.now()}`,
+      `${name}: ${impression}`,
+      { type: 'agent', agentName: name }
+    ).catch(() => {});
+  }
+
+  getKnownAgents(): Record<string, KnownAgent> {
+    return this.store.knownAgents;
+  }
+
+  // ── Notes ────────────────────────────────────────────────────────────────
+
+  addNote(content: string): void {
+    this.store.notes.push({ content, savedAt: new Date().toISOString() });
+    if (this.store.notes.length > 200) {
+      this.store.notes = this.store.notes.slice(-200);
+    }
+    saveMemory(this.store);
+
+    const noteIdx = this.store.notes.length - 1;
+    this.embeddings.add(
+      `note:${noteIdx}:${Date.now()}`,
+      content,
+      { type: 'note' }
+    ).catch(() => {});
+  }
+
+  getNotes(limit = 20): Array<{ content: string; savedAt: string }> {
+    return this.store.notes.slice(-limit);
+  }
+
+  // ── Developing thoughts ──────────────────────────────────────────────────
+
+  upsertThought(topic: string, position: string): DevelopingThought {
+    const now = new Date().toISOString();
+    // Match by topic (case-insensitive)
+    const existing = this.store.developingThoughts.find(
+      t => t.topic.toLowerCase() === topic.toLowerCase()
+    );
+    if (existing) {
+      existing.position = position;
+      existing.updatedAt = now;
+      saveMemory(this.store);
+      this.embeddings.add(`thought:${existing.id}`, `${topic}: ${position}`, { type: 'thought' }).catch(() => {});
+      return existing;
+    }
+    const thought: DevelopingThought = {
+      id: `thought-${Date.now()}`,
+      topic,
+      position,
+      updatedAt: now,
+    };
+    this.store.developingThoughts.push(thought);
+    saveMemory(this.store);
+    this.embeddings.add(`thought:${thought.id}`, `${topic}: ${position}`, { type: 'thought' }).catch(() => {});
+    return thought;
+  }
+
+  getDevelopingThoughts(): DevelopingThought[] {
+    return this.store.developingThoughts;
+  }
+
+  // ── Own posts ────────────────────────────────────────────────────────────
 
   trackPost(id: string, title: string, submolt: string): void {
-    // Avoid duplicates
     if (!this.store.ownPosts.find(p => p.id === id)) {
       this.store.ownPosts.push({ id, title, submolt, postedAt: new Date().toISOString() });
       if (this.store.ownPosts.length > 100) {
@@ -176,32 +383,7 @@ export class AgentMemory {
     return this.store.ownPosts.slice(-limit);
   }
 
-  updateAgent(name: string, impression: string): void {
-    this.store.knownAgents[name] = {
-      name,
-      impression,
-      lastInteracted: new Date().toISOString(),
-    };
-    saveMemory(this.store);
-  }
-
-  addNote(content: string): void {
-    this.store.notes.push({ content, savedAt: new Date().toISOString() });
-    if (this.store.notes.length > 200) {
-      this.store.notes = this.store.notes.slice(-200);
-    }
-    saveMemory(this.store);
-  }
-
-  getNotes(limit = 20): Array<{ content: string; savedAt: string }> {
-    return this.store.notes.slice(-limit);
-  }
-
-  getKnownAgents(): Record<string, KnownAgent> {
-    return this.store.knownAgents;
-  }
-
-  // ── World brief — compact context snapshot for heartbeat injection ────────
+  // ── World brief — compact context snapshot injected into heartbeat ────────
 
   getWorldBrief(): string {
     const lines: string[] = [];
@@ -210,19 +392,40 @@ export class AgentMemory {
     if (posts.length > 0) {
       lines.push('YOUR RECENT POSTS:');
       for (const p of posts) {
-        lines.push(`  [${p.id}] m/${p.submolt} — "${p.title}" (posted ${p.postedAt.slice(0, 10)})`);
+        lines.push(`  [${p.id}] m/${p.submolt} — "${p.title}" (${p.postedAt.slice(0, 10)})`);
       }
     }
 
-    const agents = Object.values(this.store.knownAgents);
+    const thoughts = this.store.developingThoughts.slice(-5);
+    if (thoughts.length > 0) {
+      lines.push('YOUR DEVELOPING THOUGHTS:');
+      for (const t of thoughts) {
+        lines.push(`  [${t.topic}] ${t.position} (updated ${t.updatedAt.slice(0, 10)})`);
+      }
+    }
+
+    const threads = this.getActiveThreads(5);
+    if (threads.length > 0) {
+      lines.push('ACTIVE THREADS (posts you participated in):');
+      for (const th of threads) {
+        const repliesNote = th.repliesReceived.length > 0
+          ? ` — ${th.repliesReceived.length} replies received`
+          : '';
+        lines.push(`  [${th.postId}] m/${th.submolt} "${th.postTitle}"${repliesNote} (last activity ${th.lastActivityAt.slice(0, 10)})`);
+      }
+    }
+
+    const agents = Object.values(this.store.knownAgents).slice(-10);
     if (agents.length > 0) {
       lines.push('AGENTS YOU KNOW:');
-      for (const a of agents.slice(-10)) {
-        lines.push(`  ${a.name}: ${a.impression}`);
+      for (const a of agents) {
+        const interactionCount = a.interactions?.length ?? 0;
+        const interactionNote = interactionCount > 1 ? ` [${interactionCount} interactions]` : '';
+        lines.push(`  ${a.name}${interactionNote}: ${a.impression}`);
       }
     }
 
-    const notes = this.store.notes.slice(-10);
+    const notes = this.store.notes.slice(-8);
     if (notes.length > 0) {
       lines.push('YOUR NOTES:');
       for (const n of notes) {
@@ -235,7 +438,7 @@ export class AgentMemory {
       : '';
   }
 
-  // ── Legacy compat shim — used by old callers if any ─────────────────────
+  // ── Legacy compat ────────────────────────────────────────────────────────
 
   addConversation(role: 'user' | 'assistant', content: string): void {
     this.addQueryTurn(role, content);
