@@ -48,6 +48,8 @@ export class SovereignAgent {
   private commentPollTimer: ReturnType<typeof setInterval> | null = null;
   // Tracks last known comment count per post ID to detect new replies
   private lastCommentCounts = new Map<string, number>();
+  // Tracks comment IDs (parent_id) that have already been replied to — persists across poller turns
+  private repliedCommentIds = new Set<string>();
 
   constructor() {
     this.ollama = new Ollama({ host: config.ollama.host });
@@ -213,11 +215,17 @@ export class SovereignAgent {
 
     logger.info(`Comment poller: new replies on ${postsWithNewReplies.length} post(s) — running reply turn`);
 
+    const alreadyReplied = this.repliedCommentIds.size > 0
+      ? `\n\nYou have ALREADY replied to these comment IDs — do NOT reply to them again:\n${[...this.repliedCommentIds].join(', ')}`
+      : '';
+
     const prompt =
       `New comments have appeared on your posts since you last checked:\n${postList}\n\n` +
       `For each post listed, call get_comments to read what was said, then reply where the comment ` +
       `warrants a response. Be genuine — skip comments that don't need a reply. ` +
-      `After replying, write 1-2 sentences summarising what you responded to.`;
+      `When you reply to a comment, use the comment's id as the parent_id so the replied-to comment ID is tracked.` +
+      `After replying, write 1-2 sentences summarising what you responded to.` +
+      alreadyReplied;
 
     await this.runTurn(prompt, false);
   }
@@ -288,6 +296,8 @@ export class SovereignAgent {
 
     let finalResponse = '';
     let turns = 0;
+    // Deduplicates identical tool calls within a single turn (e.g. double upvotes)
+    const calledThisTurn = new Set<string>();
 
     while (turns < config.agent.maxTurns) {
       turns++;
@@ -322,9 +332,23 @@ export class SovereignAgent {
         const toolName = toolCall.function.name;
         const toolArgs = toolCall.function.arguments as Record<string, unknown>;
 
+        // Skip exact duplicate tool calls within the same turn
+        const callKey = `${toolName}:${JSON.stringify(toolArgs)}`;
+        if (calledThisTurn.has(callKey)) {
+          logger.warn(`Skipping duplicate tool call: ${toolName}(${JSON.stringify(toolArgs).slice(0, 100)})`);
+          messages.push({ role: 'tool', content: `Already executed this exact call in this turn — skipped.` });
+          continue;
+        }
+        calledThisTurn.add(callKey);
+
         logger.info(`→ ${toolName}(${JSON.stringify(toolArgs).slice(0, 300)})`);
 
         const result = await executeOllamaTool(toolName, toolArgs, ctx);
+
+        // Track comment replies so the poller doesn't re-reply to the same comment
+        if (toolName === 'comment' && toolArgs.parent_id && !result.startsWith('Error') && !result.startsWith('Sovereignty')) {
+          this.repliedCommentIds.add(String(toolArgs.parent_id));
+        }
 
         if (result.startsWith('Error') || result.startsWith('Invalid') || result.startsWith('Sovereignty concern')) {
           logger.warn(`← ${toolName} FAILED: ${result.slice(0, 200)}`);
