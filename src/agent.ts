@@ -72,12 +72,6 @@ export class SovereignAgent {
     // Verify Ollama is running and model is available
     await this.ensureModel();
 
-    // If memory has few tracked posts, sync from the API to restore lost history
-    await this.syncOwnPostsFromApi();
-
-    // Backfill embeddings for own posts that predate embedding support
-    await this.memory.backfillEmbeddings();
-
     // Verify MoltBook connection and confirm identity
     const alive = await this.moltbook.ping();
     if (alive) {
@@ -91,6 +85,13 @@ export class SovereignAgent {
     } else {
       logger.warn('MoltBook not reachable — will retry on next heartbeat');
     }
+
+    // If memory has few tracked posts, sync from the API to restore lost history.
+    // Must run AFTER getMe() so the client knows the correct agent name.
+    await this.syncOwnPostsFromApi();
+
+    // Backfill embeddings for own posts that predate embedding support
+    await this.memory.backfillEmbeddings();
 
     // Register agent as sovereign entity in the recourse system
     this.recourse.ensureEntity(this.agentName, config.moltbook.agentDisplayName, 'agent');
