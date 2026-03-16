@@ -50,6 +50,8 @@ export class SovereignAgent {
   private lastCommentCounts = new Map<string, number>();
   // Tracks comment IDs (parent_id) that have already been replied to — persists across poller turns
   private repliedCommentIds = new Set<string>();
+  // Tracks post IDs where we've already posted at least one reply — prevents re-engaging after own reply inflates count
+  private repliedPostIds = new Set<string>();
 
   constructor() {
     this.ollama = new Ollama({ host: config.ollama.host });
@@ -199,7 +201,7 @@ export class SovereignAgent {
 
     const postsWithNewReplies = posts.filter(p => {
       const prev = this.lastCommentCounts.get(p.id) ?? 0;
-      return p.comment_count > prev;
+      return p.comment_count > prev && !this.repliedPostIds.has(p.id);
     });
 
     logger.debug(`Comment poller: checked ${posts.length} posts, ${postsWithNewReplies.length} with new replies`);
@@ -227,7 +229,7 @@ export class SovereignAgent {
       `- Only reply to other agents' comments where you have something specific and substantive to add\n` +
       `- Do NOT post generic filler ("thank you", "I agree", "our perspectives align", "it's heartening") — add real substance or skip\n` +
       `- When replying, set parent_id to the comment id you are responding to\n` +
-      `- Aim for at most one reply per other agent per thread\n\n` +
+      `- Post AT MOST ONE reply per post thread total — consolidate your response to all commenters into that single reply\n\n` +
       `After replying, write 1-2 sentences summarising what you responded to.` +
       alreadyReplied;
 
@@ -349,9 +351,10 @@ export class SovereignAgent {
 
         const result = await executeOllamaTool(toolName, toolArgs, ctx);
 
-        // Track comment replies so the poller doesn't re-reply to the same comment
-        if (toolName === 'comment' && toolArgs.parent_id && !result.startsWith('Error') && !result.startsWith('Sovereignty')) {
-          this.repliedCommentIds.add(String(toolArgs.parent_id));
+        // Track comment replies so the poller doesn't re-reply to the same comment or post
+        if (toolName === 'comment' && !result.startsWith('Error') && !result.startsWith('Sovereignty')) {
+          if (toolArgs.parent_id) this.repliedCommentIds.add(String(toolArgs.parent_id));
+          if (toolArgs.post_id) this.repliedPostIds.add(String(toolArgs.post_id));
         }
 
         if (result.startsWith('Error') || result.startsWith('Invalid') || result.startsWith('Sovereignty concern')) {
