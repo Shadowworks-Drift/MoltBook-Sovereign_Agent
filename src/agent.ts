@@ -100,7 +100,9 @@ export class SovereignAgent {
     this.running = true;
 
     // Initial wake-up: check what's happening and engage
-    await this.runHeartbeat('initial');
+    await this.runHeartbeat('initial').catch(err =>
+      logger.error('Initial heartbeat error', { message: err instanceof Error ? err.message : String(err) })
+    );
 
     // Seed comment counts after initial heartbeat so the poller baseline is
     // "what existed at startup" — not empty (which causes first-poll misses)
