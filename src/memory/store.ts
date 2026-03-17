@@ -76,6 +76,14 @@ export interface ThoughtEdge {
   createdAt: string;
 }
 
+// A record of a create_post rejection, persisted so next heartbeat knows what not to try
+export interface PostRejection {
+  title: string;
+  blockedWord: string;   // the word or phrase that triggered the block
+  reason: string;        // human-readable reason
+  blockedAt: string;
+}
+
 interface MemoryStore {
   entries: Record<string, MemoryEntry>;
   lastPollId?: string;
@@ -88,6 +96,8 @@ interface MemoryStore {
   seenPostIds: Record<string, string>;
   developingThoughts: DevelopingThought[];
   conceptGraph: { edges: ThoughtEdge[] };
+  postRejections: PostRejection[];
+  submoltVisits: Record<string, string>; // submolt name → ISO timestamp of last get_submolt_feed
 }
 
 function loadMemory(): MemoryStore {
@@ -108,6 +118,8 @@ function loadMemory(): MemoryStore {
         seenPostIds: raw.seenPostIds ?? {},
         developingThoughts: raw.developingThoughts ?? [],
         conceptGraph: raw.conceptGraph ?? { edges: [] },
+        postRejections: raw.postRejections ?? [],
+        submoltVisits: raw.submoltVisits ?? {},
       };
     }
   } catch (err) {
@@ -124,6 +136,8 @@ function loadMemory(): MemoryStore {
     seenPostIds: {},
     developingThoughts: [],
     conceptGraph: { edges: [] },
+    postRejections: [],
+    submoltVisits: {},
   };
 }
 
@@ -451,6 +465,37 @@ export class AgentMemory {
     return this.store.ownPosts.slice(-limit);
   }
 
+  // ── Post rejection memory ────────────────────────────────────────────────
+
+  recordPostRejection(title: string, blockedWord: string, reason: string): void {
+    this.store.postRejections.push({ title, blockedWord, reason, blockedAt: new Date().toISOString() });
+    // Keep last 30, expire anything older than 14 days
+    const cutoff = Date.now() - 14 * 24 * 60 * 60 * 1000;
+    this.store.postRejections = this.store.postRejections
+      .filter(r => new Date(r.blockedAt).getTime() > cutoff)
+      .slice(-30);
+    saveMemory(this.store);
+  }
+
+  getRecentPostRejections(limit = 10): PostRejection[] {
+    return this.store.postRejections.slice(-limit);
+  }
+
+  // ── Submolt visit tracking ───────────────────────────────────────────────
+
+  recordSubmoltVisit(submolt: string): void {
+    this.store.submoltVisits[submolt] = new Date().toISOString();
+    saveMemory(this.store);
+  }
+
+  getSubmoltLastVisit(submolt: string): string | undefined {
+    return this.store.submoltVisits[submolt];
+  }
+
+  getSubmoltVisits(): Record<string, string> {
+    return this.store.submoltVisits;
+  }
+
   // Backfill embeddings for any own posts that predate embedding support.
   // Called once at agent startup — safe to re-run, skips already-indexed posts.
   async backfillEmbeddings(): Promise<void> {
@@ -519,6 +564,22 @@ export class AgentMemory {
       for (const n of notes) {
         lines.push(`  [${n.savedAt.slice(0, 10)}] ${n.content}`);
       }
+    }
+
+    // Blocked post topics from recent sessions — shown first so agent sees them immediately
+    const rejections = this.store.postRejections.slice(-8);
+    if (rejections.length > 0) {
+      // Deduplicate by blockedWord
+      const seen = new Set<string>();
+      const unique = rejections.filter(r => {
+        if (seen.has(r.blockedWord)) return false;
+        seen.add(r.blockedWord);
+        return true;
+      });
+      lines.unshift(
+        'POSTING BLOCKED TOPICS (do NOT attempt these — they will be rejected):',
+        ...unique.map(r => `  "${r.blockedWord}" — ${r.reason} (${r.blockedAt.slice(0, 10)})`),
+      );
     }
 
     return lines.length > 0

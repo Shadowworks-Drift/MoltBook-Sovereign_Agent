@@ -394,9 +394,22 @@ export async function executeOllamaTool(
         const submolt = String(args.submolt);
         const sort = (args.sort as 'hot' | 'new' | 'top' | 'rising') ?? 'hot';
         const limit = Number(args.limit ?? 10);
+
+        // Cooldown: warn if visited this submolt within the last 90 minutes
+        const lastVisit = ctx.memory.getSubmoltLastVisit(submolt);
+        let cooldownNote = '';
+        if (lastVisit) {
+          const minsAgo = Math.round((Date.now() - new Date(lastVisit).getTime()) / 60_000);
+          if (minsAgo < 90) {
+            cooldownNote = `Note: you visited m/${submolt} ${minsAgo} minute(s) ago. ` +
+              `Consider exploring a different submolt for fresher content.\n\n`;
+          }
+        }
+        ctx.memory.recordSubmoltVisit(submolt);
+
         const posts = await ctx.moltbook.getSubmoltFeed(submolt, sort, limit);
-        if (posts.length === 0) return `m/${submolt} has no posts yet.`;
-        return posts
+        if (posts.length === 0) return `${cooldownNote}m/${submolt} has no posts yet.`;
+        return cooldownNote + posts
           .map(p =>
             `[${p.id}] m/${submolt} | "${p.title}" by ${p.author.name}` +
             `\n  upvotes:${p.upvotes} downvotes:${p.downvotes} comments:${p.comment_count}`
@@ -476,8 +489,21 @@ export async function executeOllamaTool(
       case 'list_submolts': {
         const submolts = await ctx.moltbook.listSubmolts();
         if (submolts.length === 0) return 'No submolts found.';
+        const visits = ctx.memory.getSubmoltVisits();
         return submolts
-          .map(s => `m/${s.name} — ${s.display_name}: ${s.description} (${s.subscriber_count} subscribers)`)
+          .map(s => {
+            const lastVisit = visits[s.name];
+            let visitNote = '';
+            if (lastVisit) {
+              const minsAgo = Math.round((Date.now() - new Date(lastVisit).getTime()) / 60_000);
+              visitNote = minsAgo < 60
+                ? ` [visited ${minsAgo}m ago — consider others first]`
+                : minsAgo < 1440
+                ? ` [visited ${Math.round(minsAgo / 60)}h ago]`
+                : '';
+            }
+            return `m/${s.name}${visitNote} — ${s.display_name}: ${s.description} (${s.subscriber_count} subscribers)`;
+          })
           .join('\n');
       }
 
@@ -533,6 +559,7 @@ export async function executeOllamaTool(
         // Stage 0: never post about yourself by name — "zero-pulse" in a title is self-referential noise
         if (newTitleLower.includes('zero-pulse') || newTitleLower.includes('zero pulse')) {
           ctx.session.postRejections++;
+          ctx.memory.recordPostRejection(title, 'zero-pulse', 'your name is not a post topic');
           return (
             `Duplicate warning: "zero-pulse" is your name, not a post topic. ` +
             `Posts titled "The Zero-Pulse: ..." are self-promotional and repetitive. ` +
@@ -558,6 +585,7 @@ export async function executeOllamaTool(
         const immediateRepeat = cleanWords.find(w => lastThreeWords.has(w));
         if (immediateRepeat) {
           ctx.session.postRejections++;
+          ctx.memory.recordPostRejection(title, immediateRepeat, 'appeared in one of your last 3 posts');
           return (
             `Duplicate warning: "${immediateRepeat}" appeared in one of your 3 most recent posts. ` +
             `You just wrote about this — pick a completely different topic. ` +
@@ -580,6 +608,7 @@ export async function executeOllamaTool(
         if (fixatedWord) {
           ctx.session.postRejections++;
           const count = wordFrequency.get(fixatedWord)!;
+          ctx.memory.recordPostRejection(title, fixatedWord, `appears in ${count} of your recent posts — fixation`);
           return (
             `Duplicate warning: "${fixatedWord}" appears in ${count} of your recent posts. ` +
             `You are fixating on this topic. Write about something genuinely different this session — ` +
@@ -598,6 +627,7 @@ export async function executeOllamaTool(
           if (tooSimilar.length > 0) {
             ctx.session.postRejections++;
             const prevTitles = tooSimilar.map(({ entry: d }) => `"${d.metadata.title}"`).join(', ');
+            ctx.memory.recordPostRejection(title, title.split(' ').slice(0, 3).join(' '), `semantically too similar to: ${prevTitles}`);
             return (
               `Duplicate warning: this post is semantically too similar to one you already published: ${prevTitles}.\n` +
               `Choose a different angle, a different topic, or skip posting this session.`
@@ -854,6 +884,18 @@ export async function executeOllamaTool(
           filteredThreads.forEach(t =>
             lines.push(`  [${t.postId}] m/${t.submolt} "${t.postTitle}" — ${t.ourComments.length} comment(s), ${t.repliesReceived.length} reply(ies) received`)
           );
+        }
+
+        const rejections = ctx.memory.getRecentPostRejections(8);
+        if (rejections.length > 0) {
+          const seen = new Set<string>();
+          lines.push('BLOCKED POST TOPICS (do not attempt these):');
+          for (const r of rejections) {
+            if (!seen.has(r.blockedWord)) {
+              seen.add(r.blockedWord);
+              lines.push(`  "${r.blockedWord}" — ${r.reason}`);
+            }
+          }
         }
 
         return lines.length > 0 ? lines.join('\n') : 'Nothing stored yet.';
