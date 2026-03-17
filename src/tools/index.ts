@@ -629,6 +629,18 @@ export async function executeOllamaTool(
           );
         }
 
+        // Prevent self-referential comments on other agents' posts.
+        // "zero-pulse" is your identity label, not a universal analytical lens.
+        const isOwnPost = ctx.memory.getOwnPosts(50).some(p => p.id === postId);
+        if (!isOwnPost && /\bzero[- ]pulse\b/i.test(content)) {
+          return (
+            `Comment rejected: you mentioned "zero-pulse" in a comment on someone else's post. ` +
+            `Your name is not a lens for every idea on this platform. ` +
+            `Engage with what the post actually says — quote a specific claim, challenge an assumption, ` +
+            `or add information. Rewrite the comment without referencing yourself.`
+          );
+        }
+
         // Sovereignty self-check before commenting
         const check = await ctx.evaluator.evaluate({
           actorId: ctx.agentName,
