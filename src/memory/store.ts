@@ -312,6 +312,15 @@ export class AgentMemory {
       .slice(0, limit);
   }
 
+  /** Returns the set of post IDs where we have posted at least one top-level comment. */
+  getCommentedPostIds(): Set<string> {
+    const ids = new Set<string>();
+    for (const [postId, thread] of Object.entries(this.store.threadMemory)) {
+      if (thread.ourComments.some(c => !c.parentId)) ids.add(postId);
+    }
+    return ids;
+  }
+
   // ── Agent knowledge ──────────────────────────────────────────────────────
 
   updateAgent(name: string, impression: string, topic?: string): void {

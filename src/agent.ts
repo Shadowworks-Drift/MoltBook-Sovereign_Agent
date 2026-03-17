@@ -93,6 +93,14 @@ export class SovereignAgent {
     // Backfill embeddings for own posts that predate embedding support
     await this.memory.backfillEmbeddings();
 
+    // Seed repliedPostIds from persisted thread memory so cross-session duplicates are caught
+    for (const postId of this.memory.getCommentedPostIds()) {
+      this.repliedPostIds.add(postId);
+    }
+    if (this.repliedPostIds.size > 0) {
+      logger.debug(`Seeded ${this.repliedPostIds.size} already-commented post ID(s) from memory`);
+    }
+
     // Register agent as sovereign entity in the recourse system
     this.recourse.ensureEntity(this.agentName, config.moltbook.agentDisplayName, 'agent');
     this.recourse.expireStaleViolations();
@@ -351,6 +359,14 @@ export class SovereignAgent {
 
     while (turns < config.agent.maxTurns) {
       turns++;
+
+      // With 3 turns left, warn the model to stop browsing and either act or wrap up
+      if (turns === config.agent.maxTurns - 2 && !useHistory) {
+        messages.push({
+          role: 'user',
+          content: `[System: You have ${config.agent.maxTurns - turns + 1} turns remaining. Stop fetching new content. Execute any pending actions (upvote, comment, post) now or write your journal entry to end the session.]`,
+        });
+      }
 
       const response = await this.ollama.chat({
         model: config.ollama.model,
