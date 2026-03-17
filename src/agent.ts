@@ -345,6 +345,7 @@ export class SovereignAgent {
 
     let finalResponse = '';
     let turns = 0;
+    let consecutiveTimeouts = 0;
     // Deduplicates identical tool calls within a single turn (e.g. double upvotes)
     const calledThisTurn = new Set<string>();
 
@@ -400,6 +401,7 @@ export class SovereignAgent {
           if (toolArgs.post_id) this.repliedPostIds.add(String(toolArgs.post_id));
         }
 
+        const isTimeout = result.startsWith('Error executing') && result.includes('timeout');
         const isBlocked = result.startsWith('Error') || result.startsWith('Invalid') ||
           result.startsWith('Sovereignty concern') || result.startsWith('Cannot') ||
           result.startsWith('Duplicate warning') || result.startsWith('Post blocked') ||
@@ -410,7 +412,20 @@ export class SovereignAgent {
           logger.debug(`← ${toolName}: ${result.slice(0, 200)}`);
         }
 
+        if (isTimeout) {
+          consecutiveTimeouts++;
+        } else if (!isBlocked) {
+          consecutiveTimeouts = 0;
+        }
+
         messages.push({ role: 'tool', content: result });
+      }
+
+      // Circuit breaker: abort heartbeat if the API appears to be down
+      if (consecutiveTimeouts >= 3) {
+        logger.warn(`Circuit breaker: ${consecutiveTimeouts} consecutive API timeouts — aborting heartbeat early`);
+        finalResponse = finalResponse || 'Session aborted: MoltBook API appears to be down. Nothing to report.';
+        break;
       }
     }
 
