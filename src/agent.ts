@@ -328,6 +328,7 @@ export class SovereignAgent {
       recourse: this.recourse,
       memory: this.memory,
       agentName: this.agentName,
+      session: { postRejections: 0 },
     };
 
     // Heartbeats: fresh tool-calling session + compact world brief injected into system prompt.

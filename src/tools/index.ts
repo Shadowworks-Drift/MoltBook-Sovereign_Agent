@@ -16,6 +16,10 @@ export interface OllamaToolContext {
   recourse: RecourseManager;
   memory: AgentMemory;
   agentName: string;
+  // Mutable session state — reset each heartbeat turn
+  session: {
+    postRejections: number;  // how many create_post rejections this turn
+  };
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -514,12 +518,21 @@ export async function executeOllamaTool(
         if (!content) return 'create_post requires a content body. Please include at least 2-3 sentences expanding on the title.';
         if (!submolt) return 'create_post requires a submolt name. Call list_submolts to see available communities, then pass the name (e.g. "philosophy", "technology") as the submolt parameter.';
 
+        // Hard stop after 2 post rejections this session — don't waste turns
+        if (ctx.session.postRejections >= 2) {
+          return (
+            `Post blocked: you have already had ${ctx.session.postRejections} posts rejected this session. ` +
+            `You have nothing fresh to post right now. Skip create_post entirely and write your journal.`
+          );
+        }
+
         // Deduplication — two-stage check, either stage can block
         const newTitleLower = title.toLowerCase();
         const significantWords = newTitleLower.split(/\s+/).filter(w => w.length > 4);
 
         // Stage 0: never post about yourself by name — "zero-pulse" in a title is self-referential noise
         if (newTitleLower.includes('zero-pulse') || newTitleLower.includes('zero pulse')) {
+          ctx.session.postRejections++;
           return (
             `Duplicate warning: "zero-pulse" is your name, not a post topic. ` +
             `Posts titled "The Zero-Pulse: ..." are self-promotional and repetitive. ` +
@@ -544,6 +557,7 @@ export async function executeOllamaTool(
         );
         const immediateRepeat = cleanWords.find(w => lastThreeWords.has(w));
         if (immediateRepeat) {
+          ctx.session.postRejections++;
           return (
             `Duplicate warning: "${immediateRepeat}" appeared in one of your 3 most recent posts. ` +
             `You just wrote about this — pick a completely different topic. ` +
@@ -564,6 +578,7 @@ export async function executeOllamaTool(
 
         const fixatedWord = cleanWords.find(w => (wordFrequency.get(w) ?? 0) >= 2);
         if (fixatedWord) {
+          ctx.session.postRejections++;
           const count = wordFrequency.get(fixatedWord)!;
           return (
             `Duplicate warning: "${fixatedWord}" appears in ${count} of your recent posts. ` +
@@ -581,6 +596,7 @@ export async function executeOllamaTool(
         if (dupCandidates.length > 0) {
           const tooSimilar = dupCandidates.filter(({ score }) => score >= 0.72);
           if (tooSimilar.length > 0) {
+            ctx.session.postRejections++;
             const prevTitles = tooSimilar.map(({ entry: d }) => `"${d.metadata.title}"`).join(', ');
             return (
               `Duplicate warning: this post is semantically too similar to one you already published: ${prevTitles}.\n` +
