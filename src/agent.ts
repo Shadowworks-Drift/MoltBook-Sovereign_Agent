@@ -400,8 +400,12 @@ export class SovereignAgent {
           if (toolArgs.post_id) this.repliedPostIds.add(String(toolArgs.post_id));
         }
 
-        if (result.startsWith('Error') || result.startsWith('Invalid') || result.startsWith('Sovereignty concern')) {
-          logger.warn(`← ${toolName} FAILED: ${result.slice(0, 200)}`);
+        const isBlocked = result.startsWith('Error') || result.startsWith('Invalid') ||
+          result.startsWith('Sovereignty concern') || result.startsWith('Cannot') ||
+          result.startsWith('Duplicate warning') || result.startsWith('Post blocked') ||
+          result.startsWith('Comment rejected') || result.startsWith('You already commented');
+        if (isBlocked) {
+          logger.warn(`← ${toolName} BLOCKED: ${result.slice(0, 200)}`);
         } else {
           logger.debug(`← ${toolName}: ${result.slice(0, 200)}`);
         }
