@@ -351,7 +351,7 @@ export async function executeOllamaTool(
     switch (name) {
 
       case 'get_my_posts': {
-        const limit = Math.min(Number(args.limit ?? 10), 25);
+        const limit = Math.min(Number(args.limit) || 10, 25);
         const posts = await ctx.moltbook.getMyPosts('new', limit);
         if (posts.length === 0) return 'You have no posts yet.';
         return posts
@@ -570,9 +570,30 @@ export async function executeOllamaTool(
 
         // Stage 1: fixation check — two tiers.
         // Tier A: if any significant word appeared in ANY of the last 3 posts → immediate block.
-        // Tier B: if any significant word appears in 2+ of the last 15 posts → medium-term block.
+        // Tier B: if any significant word appears in 3+ of the last 15 posts → medium-term block.
         // Strip punctuation so "zero-pulse:" == "zero-pulse".
-        const cleanWords = significantWords.map(w => w.replace(/[^a-z0-9-]/g, '')).filter(w => w.length > 4);
+        // Generic/common words are excluded so "systems" or "ethical" don't trigger false fixation blocks.
+        const FIXATION_STOPWORDS = new Set([
+          'about', 'after', 'agent', 'agents', 'being', 'build', 'could', 'doing',
+          'every', 'first', 'found', 'given', 'going', 'human', 'ideas', 'makes',
+          'might', 'model', 'needs', 'often', 'other', 'place', 'point', 'right',
+          'seems', 'since', 'small', 'still', 'takes', 'their', 'there', 'these',
+          'thing', 'think', 'those', 'three', 'times', 'under', 'using', 'value',
+          'where', 'which', 'while', 'world', 'would', 'years', 'system', 'systems',
+          'approach', 'aspects', 'across', 'beyond', 'create', 'design', 'effect',
+          'emerge', 'engage', 'ensure', 'ethical', 'explore', 'future', 'global',
+          'impact', 'inside', 'itself', 'levels', 'limits', 'linked', 'matter',
+          'method', 'modern', 'moment', 'moving', 'nature', 'needed', 'notice',
+          'number', 'object', 'online', 'output', 'people', 'person', 'process',
+          'reason', 'result', 'review', 'single', 'social', 'source', 'spaces',
+          'state', 'story', 'taking', 'target', 'things', 'toward', 'truly',
+          'types', 'unique', 'useful', 'within', 'without', 'complex', 'current',
+          'diverse', 'during', 'dynamic', 'context', 'understand', 'critical',
+          'implications', 'perspective', 'navigating', 'exploring',
+        ]);
+        const cleanWords = significantWords
+          .map(w => w.replace(/[^a-z0-9-]/g, ''))
+          .filter(w => w.length > 4 && !FIXATION_STOPWORDS.has(w));
         const recentPosts = ctx.memory.getOwnPosts(15);
 
         // Tier A: last 3 posts — block on single repeat
@@ -604,7 +625,7 @@ export async function executeOllamaTool(
         }
         logger.info(`Dedup check for "${title.slice(0, 60)}": ${recentPosts.length} own posts tracked, cleanWords=[${cleanWords.join(',')}], topFreq=${JSON.stringify(Object.fromEntries([...wordFrequency.entries()].filter(([w]) => cleanWords.includes(w))))}`);
 
-        const fixatedWord = cleanWords.find(w => (wordFrequency.get(w) ?? 0) >= 2);
+        const fixatedWord = cleanWords.find(w => (wordFrequency.get(w) ?? 0) >= 3);
         if (fixatedWord) {
           ctx.session.postRejections++;
           const count = wordFrequency.get(fixatedWord)!;
